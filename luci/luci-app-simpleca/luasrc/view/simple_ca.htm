@@ -1,0 +1,792 @@
+<script type="text/javascript">
+function refreshCAlist() {
+  var xhr = new XMLHttpRequest();
+  xhr.open("GET", "<%=url("admin/services/simple_ca/manage/ca/list")%>");
+  xhr.onload = function() {
+    var data = JSON.parse(xhr.responseText);
+    var dest = document.getElementById("calist");
+    var dropdown = document.getElementById("certlist_calist");
+
+    while (dropdown.firstChild != null) {
+      dropdown.removeChild(dropdown.firstChild);
+    }
+    dropdown.appendChild(E('option', { value: '' }, _('Select CA...')));
+
+    if (data && dest) {
+      var table = E('table', { border: 0, width: '100%' }, [
+        E('tr', {}, [
+          E('th', {}, _('Name')),
+          E('th', {}, _('Created')),
+          E('th', {}, _('Expires')),
+          E('th', {}, _('Actions'))
+        ])
+      ]);
+
+      for (var item in data) {
+        var tableItem = E('tr', {}, [
+          E('td', {}, data[item]['name']),
+          E('td', {}, (new Date(data[item]['created'] * 1000)).toLocaleString()),
+          E('td', {}, (new Date(data[item]['expires'] * 1000)).toLocaleString()),
+          E('td', { align: 'center' }, [
+            E('div', { class: 'cbi-button cbi-button-neutral', onclick: 'viewCA("' + data[item]['name'] + '")' }, _('View')),
+            E('div', { class: 'cbi-button cbi-button-action important', onclick: 'backupCA("' + data[item]['name'] + '")' }, _('Backup')),
+            E('div', { class: 'cbi-button cbi-button-action', onclick: 'dialogIssueCrl("' + data[item]['name'] + '")' }, _('Issue CRL')),
+            E('div', { class: 'cbi-button cbi-button-action', onclick: 'dialogChangeCApassword("' + data[item]['name'] + '")' }, _('Change password')),
+            E('div', { class: 'cbi-button cbi-button-remove', onclick: 'removeCA("' + data[item]['name'] + '")' }, _('Remove')),
+          ]),
+        ]);
+
+        table.append(tableItem);
+
+        dropdown.appendChild(E('option', { value: data[item]['name'] }, data[item]['name']));
+      }
+
+      dest.innerHTML = table.outerHTML;
+    }
+
+    refreshCertList();
+  };
+  xhr.send();
+}
+
+var currentCertList;
+var currentCA;
+
+function refreshCertList() {
+  var ca = document.getElementById("certlist_calist").value;
+
+  currentCA = ca;
+  if (ca.length < 1) {
+    currentCertList = {};
+    updateCertList();
+  } else {
+    var formData = new FormData();
+    formData.append("ca_name", ca);
+
+    var xhr = new XMLHttpRequest();
+    xhr.open("POST", "<%=url("admin/services/simple_ca/manage/cert/list")%>");
+    xhr.onload = function() {
+      currentCertList = JSON.parse(xhr.responseText);
+      updateCertList();
+    }
+    xhr.send(formData);
+  }
+}
+
+function updateCertList() {
+  var dest = document.getElementById("certlist");
+  var includeValid = document.getElementById("certlist_valid").checked;
+  var includeExpired = document.getElementById("certlist_expired").checked;
+  var includeRevoked = document.getElementById("certlist_revoked").checked;
+  var includeUnknown = document.getElementById("certlist_unknown").checked;
+
+  if (currentCertList) {
+    var table = E('table', { border: 0, width: '100%' }, [
+      E('tr', {}, [
+        E('th', {}, _('Subject')),
+        E('th', {}, _('Status')),
+        E('th', {}, _('Created')),
+        E('th', {}, _('Expires')),
+        E('th', {}, _('Actions'))
+      ])
+    ]);
+
+    for (var item in currentCertList) {
+      var status;
+      var showItem = false;
+      if (currentCertList[item]['status'] == "V") {
+        if ((currentCertList[item]['expires'] * 1000) < (new Date()).getTime()) {
+          status = _("Expired");
+
+          if (includeExpired) {
+            showItem = true;
+          }
+        } else {
+          status = _("Valid");
+
+          if (includeValid) {
+            showItem = true;
+          }
+        }
+      } else if (currentCertList[item]['status'] == "R") {
+        status = _("Revoked");
+
+        if (includeRevoked) {
+          showItem = true;
+        }
+      } else {
+        status = _("Unknown");
+
+        if (includeUnknown) {
+          showItem = true;
+        }
+      }
+
+      if (showItem) {
+        var tableItem = E('tr', {}, [
+          E('td', {}, currentCertList[item]['subject']),
+          E('td', {}, status),
+          E('td', {}, (new Date(currentCertList[item]['created'] * 1000)).toLocaleString()),
+          E('td', {}, (new Date(currentCertList[item]['expires'] * 1000)).toLocaleString()),
+          E('td', { align: 'center' }, [
+            E('div', { class: 'cbi-button cbi-button-neutral', onclick: 'viewCert("' +
+              currentCA + '", "' + currentCertList[item]['subject'] + '", "' +
+              currentCertList[item]['serial'] + '")' }, _('View')),
+            E('div', { class: 'cbi-button cbi-button-remove', onclick: 'dialogRevokeCert("' +
+              currentCA + '", "' + currentCertList[item]['subject'] + '", "' +
+              currentCertList[item]['serial'] + '")' }, _('Revoke')),
+          ]),
+        ]);
+
+        table.append(tableItem);
+      }
+    }
+
+    dest.innerHTML = table.outerHTML;
+  }
+}
+
+function pkeyAndCsrForm() {
+  return ([
+    E('table', { border: 0 }, [
+      E('tr', { align: 'left' }, E('th', { colspan: 2 }, _('Private key parameters'))),
+      E('tr', {}, [
+        E('th', { align: 'right' }, _('Algorithm/Length')),
+        E('select', { id: 'pkeyparam' }, [
+          E('option', { value: 'rsa2048' }, _('RSA 2048 bits')),
+          E('option', { value: 'rsa4096' }, _('RSA 4096 bits')),
+          E('option', { value: 'rsa8192' }, _('RSA 8192 bits')),
+          E('option', { value: 'rsa16384' }, _('RSA 16384 bits')),
+          E('option', { value: 'ec_secp521r1', selected: 1 }, _('EC NIST/SECG curve (521bits prime)')),
+          E('option', { value: 'ec_prime256v1' }, _('EC X9.62/SECG curve (256bits prime)')),
+          E('option', { value: 'ec_wap-wsg-idm-ecid-wtls12' }, _('EC WTLS curve (224bits prime)')),
+          E('option', { value: 'ec_brainpoolP512t1' }, _('EC RFC 5639 curve (512bits prime)')),
+          E('option', { value: 'ec_sm2' }, _('EC SM2 curve (256bits prime)')),
+          ])
+        ]),
+      E('tr', {}, [
+        E('th', { align: 'right' }, _('Private key password')),
+        E('input', { type: 'password', id: 'pkeypass' }),
+        ]),
+      E('tr', {}, [
+        E('th', { align: 'right' }, _('Private key password (verify)')),
+        E('input', { type: 'password', id: 'pkeypass_verify' }),
+        ]),
+      E('tr', { align: 'left' }, E('th', { colspan: 2 }, _('Certificate parameters'))),
+      E('tr', {}, [
+        E('th', { align: 'right' }, _('Country Name (2 letter code)')),
+        E('input', { type: 'text', id: 'country', placeholder: 'XX'}),
+        ]),
+      E('tr', {}, [
+        E('th', { align: 'right' }, _('State for Province Name (full name)')),
+        E('input', { type: 'text', id: 'state', placeholder: 'Some-State' }),
+        ]),
+      E('tr', {}, [
+        E('th', { align: 'right' }, _('Locality Name (eg, city)')),
+        E('input', { type: 'text', id: 'locality', placeholder: '' }),
+        ]),
+      E('tr', {}, [
+        E('th', { align: 'right' }, _('Organization Name (eg, company)')),
+        E('input', { type: 'text', id: 'organization', placeholder: 'Internet Widgits Pty Ltd' }),
+        ]),
+      E('tr', { align: 'right' }, [
+        E('th', {}, _('Organizational Unit Name (eg, section)')),
+        E('input', { type: 'text', id: 'unit', placeholder: '' }),
+        ]),
+      E('tr', { align: 'right' }, [
+        E('th', {}, _('Common Name (e.g. server FQDN or YOUR name)')),
+        E('input', { type: 'text', id: 'commonname', placeholder: '' }),
+        ]),
+      E('tr', { align: 'right' }, [
+        E('th', {}, _('Email Address')),
+        E('input', { type: 'text', id: 'email', placeholder: 'admin@example.org' }),
+        ]),
+      E('div', { class: 'formcheckresult' }, [
+        E('span', { id: 'formcheckresult', })
+        ]),
+      ]),
+    ]);
+}
+
+function fillPkeyAndCsrForm(formData) {
+  formData.append("pkeyparam", document.getElementById("pkeyparam").value);
+  formData.append("pkeypass", document.getElementById("pkeypass").value);
+  formData.append("country", document.getElementById("country").value);
+  formData.append("state", document.getElementById("state").value);
+  formData.append("locality", document.getElementById("locality").value);
+  formData.append("organization", document.getElementById("organization").value);
+  formData.append("unit", document.getElementById("unit").value);
+  formData.append("commonname", document.getElementById("commonname").value);
+  formData.append("email", document.getElementById("email").value);
+}
+
+function createNewCA(ev) {
+  if (ca_name.value.length < 1) { 
+    formcheckresult.innerHTML = "<em><%=pcdata(translate("Name must be specified."))%>";
+    setTimeout(function() { formcheckresult.innerHTML = ""; }, 5000);
+    ca_name.focus();
+    return;
+  }
+
+  if (commonname.value.length < 1) {
+    formcheckresult.innerHTML = "<em><%=pcdata(translate("Common name must be specified."))%>";
+    setTimeout(function() { formcheckresult.innerHTML = ""; }, 5000);
+    commonname.focus();
+    return;
+  }
+
+  if (pkeypass.value != pkeypass_verify.value) {
+    formcheckresult.innerHTML = "<em><%=pcdata(translate("Private key password does not match."))%>";
+    setTimeout(function() { formcheckresult.innerHTML = ""; }, 5000);
+    pkeypass.focus();
+    return;
+  }
+
+  var formData = new FormData();
+  formData.append("ca_name", document.getElementById("ca_name").value);
+  formData.append("ca_valid_days", document.getElementById("ca_valid_days").value);
+  fillPkeyAndCsrForm(formData);
+
+  L.hideModal();
+  L.showModal(_('Creating new CA...'), [
+    E('p', { class: 'spinning' }, _('Creating new CA. Please wait...'))]); 
+
+  var xhr = new XMLHttpRequest();
+  xhr.open("POST", "<%=url("admin/services/simple_ca/manage/ca/create")%>");
+  xhr.onload = function() {
+    L.hideModal();
+
+    if (xhr.responseText.length > 0) {
+      alert(xhr.responseText);
+    }
+
+    refreshCAlist();
+  };
+  xhr.send(formData);
+}
+
+function dialogCreateNewCA(ev) {
+  L.showModal(_('Create New CA'),
+    [ E('p', {}, _('Please fill-in below fields and push "Create".')),
+      E('h5', {}, _('General parameters')),
+      E('table', { border: 0, width: '100%' }, [
+        E('tr', {}, [
+          E('th', {}, _('CA Name (only for reference)')),
+          E('input', { type: 'text', id: 'ca_name', placeholder: 'CA_name'}),
+        ]),
+        E('tr', {}, [
+          E('th', {}, _('CA Validity period (days)')),
+          E('input', { type: 'number', id: 'ca_valid_days', value: 3650, min: 0 }),
+        ]),
+      ]),
+      E('p', {}, pkeyAndCsrForm()),
+      E('div',{class:'right'}, [
+        E('div',{class:'btn cbi-button-neutral', click:L.hideModal}, _('Cancel')),
+        E('div',{class:'btn cbi-button-positive', click:createNewCA}, _('Create'))
+      ])
+    ]);
+}
+
+function viewCA(name) {
+  var formData = new FormData();
+  formData.append("ca_name", name);
+
+  var xhr = new XMLHttpRequest();
+  xhr.open("POST", "<%=url("admin/services/simple_ca/manage/ca/downloadcert")%>");
+  xhr.responseType="blob";
+  xhr.onload = function() {
+    var objURL = URL.createObjectURL(xhr.response);
+    var link = document.createElement("a");
+    document.body.appendChild(link);
+    link.href= objURL;
+    link.download = xhr.getResponseHeader("X-FileName");
+    link.click();
+    document.body.removeChild(link);
+  };
+  xhr.send(formData);
+}
+
+function backupCA(name) {
+  var formData = new FormData();
+  formData.append("ca_name", name);
+
+  var xhr = new XMLHttpRequest();
+  xhr.open("POST", "<%=url("admin/services/simple_ca/manage/ca/backup")%>");
+  xhr.responseType="blob";
+  xhr.onload = function() {
+    var objURL = URL.createObjectURL(xhr.response);
+    var link = document.createElement("a");
+    document.body.appendChild(link);
+    link.href= objURL;
+    link.download = xhr.getResponseHeader("X-FileName");
+    link.click();
+    document.body.removeChild(link);
+  };
+  xhr.send(formData);
+}
+
+function removeCA(name) {
+  if (confirm(_('Really delete CA [' + name + ']?\r\n\r\nThis removes not only CA itself, but also issued ALL certificates issued from it.'))) {
+    (new XHR()).get("<%=url("admin/services/simple_ca/manage/ca/delete")%>", { ca_name: name },
+      function(r) {
+        if (r.responseText.length > 0) {
+          alert(r.responseText);
+        }
+
+        refreshCAlist();
+      });
+  }
+}
+
+function issueCrl() {
+  var formData = new FormData();
+  formData.append("ca_name", document.getElementById('ca_name').value);
+  formData.append("pkeypass", document.getElementById('pkeypass').value);
+  formData.append("crl_valid_days", document.getElementById('crl_valid_days').value);
+
+  var xhr = new XMLHttpRequest();
+  xhr.open("POST", "<%=url("admin/services/simple_ca/manage/ca/issuecrl")%>");
+  xhr.responseType="blob";
+  xhr.onload = function() {
+    if (xhr.getResponseHeader("Content-Type").indexOf("application/json") >= 0) {
+      Promise.all([xhr.response.text()]).then((message) => {
+        var csrData = JSON.parse(message);
+
+       if (csrData.error) {
+          if (csrData.error.length > 0) {
+            alert(_("Issuing CRL failed (" + csrData.error + ")!"));
+            return;
+         }
+        } else {
+            alert(message);
+        }
+      });
+    } else {
+      L.hideModal();
+      refreshCertList();
+
+      var objURL = URL.createObjectURL(xhr.response);
+      var link = document.createElement("a");
+      document.body.appendChild(link);
+      link.href= objURL;
+      link.download = xhr.getResponseHeader("X-FileName");
+      link.click();
+      document.body.removeChild(link);
+    }
+  }
+  xhr.send(formData);
+}
+
+function dialogIssueCrl(name) {
+  L.showModal(_('Issue certificate revocation list (CRL)'),
+    [ E('p', {}, _('Please confirm/input below parameters and push "Issue CRL".')),
+      E('table', { border: 0, width: '100%' }, [
+        E('tr', {}, _('General parameters')),
+        E('tr', {}, [
+          E('th', {}, _('CA')),
+          E('td', {}, E('input', { type: 'text', id: 'ca_name', readonly: 'readonly', value: name }, "")),
+        ]),
+        E('tr', {}, [
+          E('th', {}, _('CRL Validity period (days)')),
+          E('td', {}, E('input', { type: 'number', id: 'crl_valid_days', value: 30, min: 0 }, "")),
+        ]),
+        E('tr', {},
+          [ E('th', {}, _('CA password')),
+            E('td', {}, E('input', { type: 'password', id: 'pkeypass' }, "")),
+          ]),
+      ]),
+    E('div',{class:'right'}, [
+      E('div',{class:'btn cbi-button-neutral', click:L.hideModal}, _('Cancel')),
+      E('div',{class:'btn cbi-button-positive', click:issueCrl}, _('Issue CRL'))
+      ])
+    ]);
+}
+
+function changeCApassword() {
+  if (document.getElementById('pkeypass_new').value !=
+    document.getElementById('pkeypass_new_verify').value) {
+    formcheckresult.innerHTML = "<em><%=pcdata(translate("New CA password does not match."))%>";
+    setTimeout(function() { formcheckresult.innerHTML = ""; }, 5000);
+    pkeypass_new.focus();
+    return;
+  }
+
+  var formData = new FormData();
+  formData.append("ca_name", document.getElementById('ca_name').value);
+  formData.append("pkeypass_old", document.getElementById('pkeypass_old').value);
+  formData.append("pkeypass_new", document.getElementById('pkeypass_new').value);
+
+  var xhr = new XMLHttpRequest();
+  xhr.open("POST", "<%=url("admin/services/simple_ca/manage/ca/changepassword")%>");
+  xhr.onload = function() {
+    L.hideModal();
+
+    if (xhr.responseText.length > 0) {
+      var message = JSON.parse(xhr.responseText);
+
+      if (message.error) {
+        if (message.error.length > 0) {
+          alert(_("Changing CA password failed (" + message.error + ")!"));
+          return;
+       }
+      } else {
+          alert(message);
+      }
+    }
+
+    refreshCertList();
+  }
+  xhr.send(formData);
+}
+
+function dialogChangeCApassword(name) {
+  L.showModal(_('Change CA password'),
+    [ E('p', {}, _('Please confirm/input below parameters and push "Change password".')),
+      E('table', { border: 0, width: '100%' }, [
+        E('tr', {}, _('General parameters')),
+        E('tr', {}, [
+          E('th', {}, _('CA')),
+          E('td', {}, E('input', { type: 'text', id: 'ca_name', readonly: 'readonly', value: name }, "")),
+        ]),
+        E('tr', {},
+          [ E('th', {}, _('Old (current) CA password')),
+            E('td', {}, E('input', { type: 'password', id: 'pkeypass_old' }, "")),
+          ]),
+        E('tr', {},
+          [ E('th', {}, _('New CA password')),
+            E('td', {}, E('input', { type: 'password', id: 'pkeypass_new' }, "")),
+          ]),
+        E('tr', {},
+          [ E('th', {}, _('New CA password (verify)')),
+            E('td', {}, E('input', { type: 'password', id: 'pkeypass_new_verify' }, "")),
+          ]),
+      ]),
+    E('div',{class:'right'}, [
+      E('div',{class:'btn cbi-button-neutral', click:L.hideModal}, _('Cancel')),
+      E('div',{class:'btn cbi-button-positive', click:changeCApassword}, _('Change password'))
+      ]),
+    E('div', { class: 'formcheckresult' }, [
+      E('span', { id: 'formcheckresult', })
+      ]),
+    ]);
+}
+
+function issueCertFromCSR(ev) {
+  var ca_name = document.getElementById('certlist_calist').value;
+  var csr_file = document.getElementById('csr_file').files[0];
+  var cert_valid_days = document.getElementById('cert_valid_days').value;
+  var cert_client = document.getElementById('cert_client').checked;
+  var cert_server = document.getElementById('cert_server').checked;
+
+  if (ca_name.length < 1) {
+    alert(_("CA must be selected!"));
+    document.getElementById('certlist_calist').focus();
+    return;
+  }
+  if (csr_file == null) {
+    alert(_("CSR file must be specified!"));
+    document.getElementById('csr_file').focus();
+    return;
+  }
+  if (cert_valid_days < 1) {
+    alert(_("Validity period must be specified!"));
+    document.getElementById('cert_valid_days').focus();
+    return;
+  }
+  if (!(cert_client || cert_server)) {
+    alert(_("At least one usage must be specified!"));
+    document.getElementById('cert_client').focus();
+    return;
+  }
+
+  var formData = new FormData();
+  formData.append("ca_name", ca_name);
+  formData.append("pkeypass", document.getElementById('pkeypass').value);
+  formData.append("csr_file", csr_file);
+  formData.append("cert_valid_days", cert_valid_days);
+  formData.append("cert_client", cert_client);
+  formData.append("cert_server", cert_server);
+
+  var xhr = new XMLHttpRequest();
+  xhr.open("POST", "<%=url("admin/services/simple_ca/manage/cert/issue")%>");
+  xhr.responseType="blob";
+  xhr.onload = function() {
+    if (xhr.getResponseHeader("Content-Type").indexOf("application/json") >= 0) {
+      Promise.all([xhr.response.text()]).then((message) => {
+        var csrData = JSON.parse(message);
+
+       if (csrData.error) {
+          if (csrData.error.length > 0) {
+            alert(_("Issuing certificate failed (" + csrData.error + ")!"));
+            return;
+         }
+        } else {
+            alert(message);
+        }
+      });
+    } else {
+      L.hideModal();
+      refreshCertList();
+
+      var objURL = URL.createObjectURL(xhr.response);
+      var link = document.createElement("a");
+      document.body.appendChild(link);
+      link.href= objURL;
+      link.download = xhr.getResponseHeader("X-FileName");
+      link.click();
+      document.body.removeChild(link);
+    }
+  };
+  xhr.send(formData);
+}
+
+function dialogIssueCertFromCSR(ev) {
+  var ca_name = document.getElementById('certlist_calist').value;
+  var csr_file = document.getElementById('csr_file').files[0];
+
+  if (ca_name.length < 1) {
+    alert(_("CA must be selected!"));
+    document.getElementById('certlist_calist').focus();
+    return;
+  }
+  if (csr_file == null) {
+    alert(_("CSR file must be specified!"));
+    document.getElementById('csr_file').focus();
+    return;
+  }
+
+  var formData = new FormData();
+  formData.append("csr_file", csr_file);
+
+  var xhr = new XMLHttpRequest();
+  xhr.open("POST", "<%=url("admin/services/simple_ca/manage/cert/check_csr")%>");
+  xhr.onload = function() {
+    var csrData = JSON.parse(xhr.responseText);
+
+    if (csrData.error) {
+      if (csrData.error.length > 0) {
+        alert(_("Specified file is not CSR, or bad format (" + csrData.error + ")!"));
+        return;
+      }
+    }
+
+    L.showModal(_('Issue certificate from CSR'),
+      [ E('p', {}, _('Please confirm/select below parameters and push "Issue" if no problem is found.')),
+        E('table', { border: 0 }, [
+          E('tr', {}, _('General parameters')),
+          E('tr', {},
+            [ E('th', {}, _('Subject')),
+              E('td', {}, csrData.subject),
+            ]),
+          E('tr', {},
+            [ E('th', {}, _('CA password')),
+              E('td', {}, E('input', { type: 'password', id: 'pkeypass' }, "")),
+            ]),
+          E('tr', {},
+            [ E('th', {}, _('Validity period (days)')),
+              E('td', {}, E('input', { type: 'number', id: 'cert_valid_days', value: 365, min: 0 }, "")),
+            ]),
+          E('tr', {},
+            [ E('th', {}, _('Usage')),
+              E('td', {}, [
+                E('input', { type: 'checkbox', id: 'cert_client' }, ""),
+                _("Client certificate"),
+                E('input', { type: 'checkbox', id: 'cert_server' }, ""),
+                _("Server certificate"),
+              ]),
+            ]),
+          ]),
+        E('div',{class:'right'},
+          [ E('div',{class:'btn cbi-button-neutral', click:L.hideModal}, _('Cancel')),
+            E('div',{class:'btn cbi-button-positive', click:issueCertFromCSR}, _('Issue')) ] )
+    ]);
+  };
+  xhr.send(formData);
+}
+
+function viewCert(name, subject, serial) {
+  var formData = new FormData();
+  formData.append("ca_name", name);
+  formData.append("cert_serial", serial);
+
+  var xhr = new XMLHttpRequest();
+  xhr.open("POST", "<%=url("admin/services/simple_ca/manage/cert/downloadcert")%>");
+  xhr.responseType="blob";
+  xhr.onload = function() {
+    var objURL = URL.createObjectURL(xhr.response);
+    var link = document.createElement("a");
+    document.body.appendChild(link);
+    link.href= objURL;
+    link.download = xhr.getResponseHeader("X-FileName");
+    link.click();
+    document.body.removeChild(link);
+  };
+  xhr.send(formData);
+}
+
+function revokeCert() {
+  var formData = new FormData();
+  formData.append("ca_name", document.getElementById('ca_name').value);
+  formData.append("cert_serial", document.getElementById('serial').value);
+  formData.append("pkeypass", document.getElementById('pkeypass').value);
+  formData.append("revoke_reason", document.getElementById('revoke_reason').value);
+
+  var xhr = new XMLHttpRequest();
+  xhr.open("POST", "<%=url("admin/services/simple_ca/manage/cert/revoke")%>");
+  xhr.onload = function() {
+    L.hideModal();
+
+    if (xhr.responseText.length > 0) {
+      var message = JSON.parse(xhr.responseText);
+
+      if (message.error) {
+        if (message.error.length > 0) {
+          alert(_("Revoking certificate failed (" + message.error + ")!"));
+          return;
+       }
+      } else {
+          alert(message);
+      }
+    }
+
+    refreshCertList();
+  }
+  xhr.send(formData);
+}
+
+function dialogRevokeCert(name, subject, serial) {
+    L.showModal(_('Revoke certificate'),
+      [ E('p', {}, _('Please confirm/select below parameters and push "Revoke".')),
+        E('table', { border: 0, width: '100%' }, [
+          E('tr', {}, _('General parameters')),
+          E('tr', {}, [
+            E('th', {}, _('Issued CA')),
+            E('td', {}, E('input', { type: 'text', id: 'ca_name', readonly: 'readonly', style: 'width:100%;', value: name }, "")),
+          ]),
+          E('tr', {}, [
+            E('th', {}, _('Subject')),
+            E('td', {}, E('input', { type: 'text', id: 'subject', readonly: 'readonly', style: 'width:100%;', value: subject }, "")),
+          ]),
+          E('tr', {}, [
+            E('th', {}, _('Serial')),
+            E('td', {}, E('input', { type: 'text', id: 'serial', readonly: 'readonly', style: 'width:100%;', value: serial }, "")),
+          ]),
+          E('tr', {},
+            [ E('th', {}, _('CA password')),
+              E('td', {}, E('input', { type: 'password', id: 'pkeypass' }, "")),
+            ]),
+          E('tr', {}, [
+            E('th', {}, _('Revocation reason')),
+            E('td', {}, [
+              E('select', { id: 'revoke_reason' }, [
+                E('option', { value: 'unspecified', selected: 1 }, _('Unspecified')),
+                E('option', { value: 'keyCompromise' }, _('Key was compromised')),
+                E('option', { value: 'CACompromise' }, _('CA was compromised')),
+                E('option', { value: 'affiliationChanged' }, _('Affiliation was changed')),
+                E('option', { value: 'superseded' }, _('Superseded')),
+                E('option', { value: 'cessationOfOperation' }, _('Cessation of operation')),
+                E('option', { value: 'certificateHold' }, _('Certificate is hold')),
+                E('option', { value: 'removeFromCRL' }, _('Remove from CRL')),
+              ]),
+            ]),
+          ]),
+        ]),
+      E('div',{class:'right'}, [
+        E('div',{class:'btn cbi-button-neutral', click:L.hideModal}, _('Cancel')),
+        E('div',{class:'btn cbi-button-remove', click:revokeCert}, _('Revoke'))
+        ])
+      ]);
+}
+
+function createNewPkeyAndCsr(ev) {
+  if (commonname.value.length < 1) {
+    formcheckresult.innerHTML = "<em><%=pcdata(translate("common name must be specified."))%>";
+    setTimeout(function() { formcheckresult.innerHTML = ""; }, 5000);
+    commonname.focus();
+    return;
+  }
+  if (pkeypass.value != pkeypass_verify.value) {
+    formcheckresult.innerHTML = "<em><%=pcdata(translate("Private key password does not match."))%>";
+    setTimeout(function() { formcheckresult.innerHTML = ""; }, 5000);
+    pkeypass.focus();
+    return;
+  }
+
+  var formData = new FormData();
+  fillPkeyAndCsrForm(formData);
+
+  L.hideModal();
+  L.showModal(_('Creating new private key and csr...'), [
+    E('p', { class: 'spinning' }, _('Creating new private key and csr. Please wait...'))]); 
+
+  var xhr = new XMLHttpRequest();
+  xhr.open("POST", "<%=url("admin/services/simple_ca/manage/util/create_key_csr")%>");
+  xhr.responseType="blob";
+  xhr.onload = function() {
+    L.hideModal();
+
+    var objURL = URL.createObjectURL(xhr.response);
+    var link = document.createElement("a");
+    document.body.appendChild(link);
+    link.href= objURL;
+    link.download = xhr.getResponseHeader("X-FileName");
+    link.click();
+    document.body.removeChild(link);
+  };
+  xhr.send(formData);
+}
+
+function dialogCreateNewPkeyAndCsr(ev) {
+  L.showModal(_('Create New private key & csr'),
+    [ E('p', {}, _('Please fill-in below fields and push "Create".')),
+      E('p', {}, pkeyAndCsrForm()),
+      E('div',{class:'right'},
+        [ E('div',{class:'btn cbi-button-neutral',click:L.hideModal}, _('Cancel')),
+          E('div',{class:'btn cbi-button-positive', click:createNewPkeyAndCsr}, _('Create')) ] )
+    ]);
+}
+
+window.onload = function() {
+  refreshCAlist();
+}
+</script>
+<style>.mar-10 {margin-left: 50px; margin-right: 10px;}</style>
+
+<h4><%:Created CAs%></h4>
+
+<fieldset class="cbi-section">
+  <p id="calist">
+    <em><%:Collecting data...%></em>
+  </p>
+
+  <p>
+    <div class="btn cbi-button-action" onclick="dialogCreateNewCA(event)"><%: Create New CA%></div>
+  </p>
+</fieldset>
+
+<h4><%:Issued Certificates%></h4>
+
+<p class="cbi-section">
+   <%: Select CA: %><select id="certlist_calist" onchange="refreshCertList()"></select> &nbsp;
+   <input type="checkbox" id="certlist_valid" checked onchange="updateCertList()"/> <%: Valid %> &nbsp;
+   <input type="checkbox" id="certlist_expired" onchange="updateCertList()"/> <%: Expired %> &nbsp;
+   <input type="checkbox" id="certlist_revoked" onchange="updateCertList()"/> <%: Revoked %> &nbsp;
+   <input type="checkbox" id="certlist_unknown" onchange="updateCertList()"/> <%: Unknown %> &nbsp;
+</p>
+
+<fieldset class="cbi-section">
+  <div align="right">
+    <input type="file" name="csr_file" id="csr_file"/>
+    <div class="btn cbi-buttion cbi-button-add" onclick="dialogIssueCertFromCSR(event)"><%: Issue certificate from CSR file%></div>
+  </div>
+
+  <div id="certlist">
+    <em><%:Collecting data...%></em>
+  </div>
+</fieldset>
+
+<h4><%:Utility%></h4>
+
+<p>
+  <div class="btn cbi-button-action" onclick="dialogCreateNewPkeyAndCsr(event)"><%: Create new private key & csr%></div>
+</p>
