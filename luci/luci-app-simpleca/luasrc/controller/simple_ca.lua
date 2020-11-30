@@ -14,6 +14,8 @@ function index()
   entry({"admin", "services", "simple_ca", "manage", "ca", "backup"}, call("ca_backup"))
   entry({"admin", "services", "simple_ca", "manage", "ca", "issuecrl"}, call("ca_issuecrl"))
   entry({"admin", "services", "simple_ca", "manage", "ca", "changepassword"}, call("ca_changepassword"))
+  entry({"admin", "services", "simple_ca", "manage", "ca", "checkrestore"}, call("ca_checkrestore"))
+  entry({"admin", "services", "simple_ca", "manage", "ca", "restore"}, call("ca_restore"))
   entry({"admin", "services", "simple_ca", "manage", "cert", "list"}, call("cert_list"))
   entry({"admin", "services", "simple_ca", "manage", "cert", "check_csr"}, call("cert_check_csr"))
   entry({"admin", "services", "simple_ca", "manage", "cert", "issue"}, call("cert_issue"))
@@ -520,6 +522,97 @@ function ca_changepassword()
   end
 
   os.execute(LOGGER .. " 'Changed password of CA [" .. ca_name .. "]'")
+end
+
+function ca_checkrestore()
+  local fp
+  local tmpArc = os.tmpname()
+  local upload = luci.http.formvalue("backup_arc")
+
+  luci.http.setfilehandler(
+    function(meta, chunk, eof)
+      if not fp and meta and meta.name == "backup_arc" then
+        fp = io.open(tmpArc, "w")
+      end
+      if fp and chunk then
+        fp:write(chunk)
+      end
+      if fp and eof then
+        fp:close()
+      end
+    end
+  )
+
+  luci.http.status(200, "OK")
+  luci.http.prepare_content("application/json")
+
+  if (os.execute(TAR .. " tzf " .. tmpArc .. " > /dev/null 2>&1")
+    ~= 0) then
+    os.remove(tmpArc)
+    luci.http.write_json({ error="Bad format. Backup must be \"tar.gz\" archive." })
+    return
+  end
+
+  if (os.execute(TAR .. " tzf " .. tmpArc .. " | " ..
+    "grep ^[A-Za-z0-9_]*\/private/cakey.pem$ > /dev/null 2>&1")
+    ~= 0) then
+    os.remove(tmpArc)
+    luci.http.write_json({ error="CA private key was not found." })
+    return
+  end
+
+  if (os.execute(TAR .. " tzf " .. tmpArc .. " | " ..
+    "grep ^[A-Za-z0-9_]*\/cacert.pem$ > /dev/null 2>&1")
+    ~= 0) then
+    os.remove(tmpArc)
+    luci.http.write_json({ error="CA certificate was not found." })
+    return
+  end
+
+  if (os.execute(TAR .. " tzf " .. tmpArc .. " | " ..
+    "grep ^[A-Za-z0-9_]*\/index.txt$ > /dev/null 2>&1")
+    ~= 0) then
+    os.remove(tmpArc)
+    luci.http.write_json({ error="CA index.txt was not found." })
+    return
+  end
+
+  os.remove(tmpArc)
+  luci.http.write_json({ ok="Ready to proceed." })
+end
+
+function ca_restore()
+  local fp
+  local tmpArc = os.tmpname()
+  local upload = luci.http.formvalue("backup_arc")
+
+  luci.http.setfilehandler(
+    function(meta, chunk, eof)
+      if not fp and meta and meta.name == "backup_arc" then
+        fp = io.open(tmpArc, "w")
+      end
+      if fp and chunk then
+        fp:write(chunk)
+      end
+      if fp and eof then
+        fp:close()
+      end
+    end
+  )
+
+  luci.http.status(200, "OK")
+  luci.http.prepare_content("application/json")
+
+  if (os.execute(TAR .. " xzf " .. tmpArc .. " -C " .. ca_rootdir ..
+    " > /dev/null 2>&1")
+    ~= 0) then
+    os.remove(tmpArc)
+    luci.http.write_json({ error="Restore failed." })
+    return
+  end
+
+  os.remove(tmpArc)
+  luci.http.write_json({ ok="Restored." })
 end
 
 function cert_list()

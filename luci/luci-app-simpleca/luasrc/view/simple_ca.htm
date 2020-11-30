@@ -471,6 +471,95 @@ function dialogChangeCApassword(name) {
     ]);
 }
 
+function restoreCA() {
+  var backup_arc = document.getElementById('backup_arc').files[0];
+
+  if ((backup_arc == null) || (backup_arc.length < 1)) {
+    alert(_("Backup archive must be specified!"));
+    document.getElementById('backup_arc').focus();
+    return;
+  }
+
+  var formData = new FormData();
+  formData.append("backup_arc", backup_arc);
+
+  L.hideModal();
+  L.showModal(_('Restoring CA...'), [
+    E('p', { class: 'spinning' }, _('Restoring CA. Please wait...'))]); 
+
+  var xhr = new XMLHttpRequest();
+  xhr.open("POST", "<%=url("admin/services/simple_ca/manage/ca/restore")%>");
+  xhr.onload = function() {
+    var message = JSON.parse(xhr.responseText);
+
+    if (message.error != null) {
+      if (message.error.length > 0) {
+        alert(_("Restore failed [" + message.error + "]."));
+        return;
+      }
+    }
+
+    L.hideModal();
+    refreshCAlist();
+  }
+  xhr.send(formData);
+}
+
+function checkBackup() {
+  var backup_arc = document.getElementById('backup_arc').files[0];
+
+  if ((backup_arc == null) || (backup_arc.length < 1)) {
+    alert(_("Backup archive must be specified!"));
+    document.getElementById('backup_arc').focus();
+    return;
+  }
+
+  var formData = new FormData();
+  formData.append("backup_arc", backup_arc);
+
+  var xhr = new XMLHttpRequest();
+  xhr.open("POST", "<%=url("admin/services/simple_ca/manage/ca/checkrestore")%>");
+  xhr.onload = function() {
+    var message = JSON.parse(xhr.responseText);
+
+    if (message.error != null) {
+      if (message.error.length > 0) {
+        alert(_("Backup archive error [" + message.error + "]."));
+        document.getElementById('backup_arc').focus();
+        return;
+      }
+    }
+
+    document.getElementById('backup_arc').setAttribute("readonly", "yes");
+    document.getElementById('restoreText').innerHTML =
+      _("Backup file is OK. Push \"Restore\" to proceed.");
+
+    var restoreButton = document.getElementById('restore_button');
+    restoreButton.setAttribute("class", restoreButton.getAttribute("class") +
+      " important");
+    restoreButton.innerHTML = _("Restore");
+    restoreButton.removeEventListener("click", checkBackup);
+    restoreButton.addEventListener("click", restoreCA);
+  }
+  xhr.send(formData);
+}
+
+function dialogRestoreCA(ev) {
+  L.showModal(_('Restore CA'),
+    [ E('p', { id:'restoreText' }, _('Restore CA from backup which was previously taken.')),
+      E('table', { border: 0, width: '100%' }, [
+        E('tr', {}, [
+          E('th', {}, _('Backup file')),
+          E('td', {}, E('input', { type: 'file', id: 'backup_arc' }, "")),
+        ]),
+      ]),
+    E('div',{class:'right'}, [
+      E('div',{class:'btn cbi-button-neutral', click:L.hideModal}, _('Cancel')),
+      E('div',{class:'btn cbi-button-positive', id:'restore_button', click:checkBackup}, _('Next'))
+      ]),
+    ]);
+}
+
 function issueCertFromCSR(ev) {
   var ca_name = document.getElementById('certlist_calist').value;
   var csr_file = document.getElementById('csr_file').files[0];
@@ -760,7 +849,8 @@ window.onload = function() {
   </p>
 
   <p>
-    <div class="btn cbi-button-action" onclick="dialogCreateNewCA(event)"><%: Create New CA%></div>
+    <div class="btn cbi-button-action" onclick="dialogCreateNewCA(event)"><%: Create New CA...%></div>
+    <div class="btn cbi-button-action" onclick="dialogRestoreCA(event)"><%: Restore CA from backup...%></div>
   </p>
 </fieldset>
 
@@ -777,7 +867,7 @@ window.onload = function() {
 <fieldset class="cbi-section">
   <div align="right">
     <input type="file" name="csr_file" id="csr_file"/>
-    <div class="btn cbi-buttion cbi-button-add" onclick="dialogIssueCertFromCSR(event)"><%: Issue certificate from CSR file%></div>
+    <div class="btn cbi-buttion cbi-button-add" onclick="dialogIssueCertFromCSR(event)"><%: Issue certificate from CSR file...%></div>
   </div>
 
   <div id="certlist">
@@ -788,5 +878,5 @@ window.onload = function() {
 <h4><%:Utility%></h4>
 
 <p>
-  <div class="btn cbi-button-action" onclick="dialogCreateNewPkeyAndCsr(event)"><%: Create new private key & csr%></div>
+  <div class="btn cbi-button-action" onclick="dialogCreateNewPkeyAndCsr(event)"><%: Create new private key & csr...%></div>
 </p>
