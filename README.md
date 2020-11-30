@@ -6,7 +6,7 @@ These packages can be used via [feeds.conf](https://openwrt.org/docs/guide-devel
 
 (assuming that OpenWrt itself has already been configured and built)
 1. Edit `feeds.conf` and add a line as follows:  
-```src-git misc https://github.com/belphegor-belbel/openwrt-misc.git```
+```src-git misc https://github.com/belphegor-belbel/openwrt-misc.git```  
 **NOTE** OpenWrt's luci packages definition (`src-git luci https://git.openwrt.org/project/luci.git...`) is also needed to build luci package.
 1. Run `scripts/feeds update -a` to update (fetch) source codes.
 1. Run `scripts/feeds install -d m (name)` to install package to OpenWrt build procedure   
