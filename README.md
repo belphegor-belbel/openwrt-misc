@@ -12,5 +12,5 @@ These packages can be used via [feeds.conf](https://openwrt.org/docs/guide-devel
 1. Run `scripts/feeds install -d m (name)` to install package to OpenWrt build procedure   
 (where `(name)` is a package name such as "luci-app-simpleca").
 1. Run `make` to build packages.
-1. When completed without any problems, packages should be exist under `bin/(arch)/packages/misc/`  
+1. When completed without any problems, packages should be exist under `bin/packages/(arch)/misc/`  
 (where `(arch)` is an architecture name such as "aarch64_cortex-a53").
