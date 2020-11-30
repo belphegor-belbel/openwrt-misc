@@ -35,6 +35,7 @@ local RM = "/bin/rm"
 local MV = "/bin/mv"
 local CAT = "/bin/cat"
 local FIND = "/usr/bin/find"
+local TR = "/usr/bin/tr"
 local BASENAME = "/usr/bin/basename"
 local OPENSSL = "/usr/bin/openssl"
 
@@ -633,7 +634,7 @@ function cert_list()
 
   local ca_serial
   f = io.popen(OPENSSL .. " x509 -in " .. ca_rootdir .. "/" .. ca_name ..
-    "/cacert.pem" .. " -noout -serial | sed \"s/^[^=]*=//\"")
+    "/cacert.pem" .. " -noout -serial | " .. SED .. " \"s/^[^=]*=//\"")
   if (f == nil) then
     local r={}
     r.error = "Unable to find CA " .. ca_name
@@ -644,80 +645,57 @@ function cert_list()
   ca_serial = tostring(f:read())
   f:close()
 
-  f = io.popen(FIND .. " " .. ca_rootdir .. "/" .. ca_name .. "/newcerts " ..
-    "-type f -maxdepth 1")
+  f = io.popen(CAT .. " " .. ca_rootdir .. "/" .. ca_name .. "/index.txt |" ..
+    " " .. TR .. " '\t' '\n'")
   if (f == nil) then
-    luci.http.write_json({ error="unable to list certificiate" })
+    local r={}
+    r.error = "Unable to open index file for CA " .. ca_name
+    luci.http.write(json.stringify(r))
+    return
   end
 
+  -- first 6 lines should be ignored because it is CA itself
+  for i = 1,6 do
+    f:read()
+  end
+  
   local e={}
-  for line in f:lines() do
-    f2 = io.open(line)
-    if (f2 ~= nil) then
-      f2:close()
+  local eof = false
+  while (not eof) do
+    local r = {}
+    r.status = f:read()
+    f:read() -- expired
+    f:read() -- revoked?
+    r.serial = f:read()
+    f:read() -- ??
+    r.subject = f:read()
 
-      local r={}
-
-      d = io.popen(OPENSSL .. " x509 -in " .. line .. " -noout -serial " ..
-        "| sed \"s/^[^=]*=//\"")
+    if (r.status == nil) then
+      eof = true
+    else
+      d = io.popen("date -D \"%b %d %H:%M:%S %Y\" -u +\"%s\" -d \"`" .. OPENSSL ..
+        " x509 -in " .. ca_rootdir .. "/" .. ca_name .. "/newcerts/" .. r.serial ..
+        ".pem -noout -startdate | " .. SED .. " s/^.*=//`\"")
       if (d ~= nil) then
-        r.serial = tostring(d:read())
+        r.created = tonumber(d:read())
         d:close()
       end
 
-      d = io.popen(OPENSSL .. " x509 -in " .. line .. " -noout -subject " ..
-        "| sed \"s/^[^=]*=//\"")
+      d = io.popen("date -D \"%b %d %H:%M:%S %Y\" -u +\"%s\" -d \"`" .. OPENSSL ..
+        " x509 -in " .. ca_rootdir .. "/" .. ca_name .. "/newcerts/" .. r.serial ..
+        ".pem -noout -enddate | " .. SED .. " s/^.*=//`\"")
       if (d ~= nil) then
-        r.subject = tostring(d:read())
+        r.expires = tonumber(d:read())
         d:close()
       end
 
-      d = io.popen(OPENSSL .. " x509 -in " .. line .. " -noout -fingerprint " ..
-        "| sed \"s/^[^=]*=//\"")
-      if (d ~= nil) then
-        r.fingerprint = tostring(d:read())
-        d:close()
-      end
-
-      -- exclude cert of CA itself
-      if (r.serial ~= ca_serial) then
-        d = io.popen(BASENAME .. " " .. line)
-        if (d ~= nil) then
-          r.name = tostring(d:read())
-          d:close()
-        end
-
-        d = io.popen("date -d \"`" .. OPENSSL .. " x509 -in " .. line ..
-          " -noout -startdate | " .. SED .. " s/^.*=//`\"" ..
-          " -D \"%b %d %H:%M:%S %Y\" -u +\"%s\"")
-        if (d ~= nil) then
-          r.created = tonumber(d:read())
-          d:close()
-        end
-
-        d = io.popen("date -d \"`" .. OPENSSL .. " x509 -in " .. line ..
-          " -noout -enddate | " .. SED .. " s/^.*=//`\"" ..
-          " -D \"%b %d %H:%M:%S %Y\" -u +\"%s\"")
-        if (d ~= nil) then
-          r.expires = tonumber(d:read())
-          d:close()
-        end
-
-        d = io.popen("grep \"" .. r.serial .. "\" " .. ca_rootdir .. "/" ..
-          ca_name .. "/index.txt | cut -f 1")
-        if (d ~= nil) then
-          r.status = tostring(d:read())
-          d:close()
-        end
-
-        e[ #e + 1 ] = r
-      end
+      e[ #e + 1 ] = r
     end
   end
 
-  luci.http.write(json.stringify(e))
-
   f:close()
+
+  luci.http.write(json.stringify(e))
 end
 
 function cert_check_csr()
@@ -929,7 +907,7 @@ function cert_revoke()
 
   local ca_serial
   f = io.popen(OPENSSL .. " x509 -in " .. ca_rootdir .. "/" .. ca_name ..
-    "/cacert.pem" .. " -noout -serial | sed \"s/^[^=]*=//\"")
+    "/cacert.pem" .. " -noout -serial | " .. SED .. " \"s/^[^=]*=//\"")
   if (f == nil) then
     local r={}
     r.error = "Unable to find CA " .. ca_name
