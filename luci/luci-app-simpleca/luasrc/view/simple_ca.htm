@@ -155,13 +155,14 @@ function pkeyAndCsrForm() {
         E('select', { id: 'pkeyparam' }, [
           E('option', { value: 'rsa2048' }, _('RSA 2048 bits')),
           E('option', { value: 'rsa4096' }, _('RSA 4096 bits')),
-          E('option', { value: 'rsa8192' }, _('RSA 8192 bits')),
+          E('option', { value: 'rsa8192', selected: 1 }, _('RSA 8192 bits')),
           E('option', { value: 'rsa16384' }, _('RSA 16384 bits')),
-          E('option', { value: 'ec_secp521r1', selected: 1 }, _('EC NIST/SECG curve (521bits prime)')),
+          E('option', { value: 'ec_secp521r1' }, _('EC NIST/SECG curve (521bits prime)')),
           E('option', { value: 'ec_prime256v1' }, _('EC X9.62/SECG curve (256bits prime)')),
           E('option', { value: 'ec_wap-wsg-idm-ecid-wtls12' }, _('EC WTLS curve (224bits prime)')),
           E('option', { value: 'ec_brainpoolP512t1' }, _('EC RFC 5639 curve (512bits prime)')),
           E('option', { value: 'ec_sm2' }, _('EC SM2 curve (256bits prime)')),
+          E('option', { value: 'ed25519' }, _('ED25519')),
           ])
         ]),
       E('tr', {}, [

@@ -170,6 +170,8 @@ function genPkeyAndCsr(destKeyFile, destCsrFile)
     opensslparams = "-algorithm EC -pkeyopt ec_paramgen_curve:brainpoolP512t1 -pkeyopt ec_param_enc:named_curve"
   elseif (pkeyparam == "ec_sm2") then
     opensslparams = "-algorithm EC -pkeyopt ec_paramgen_curve:SM2 -pkeyopt ec_param_enc:named_curve"
+  elseif (pkeyparam == "ed25519") then
+    opensslparams = "-algorithm ED25519"
   else
     os.remove(passfile)
     luci.http.write_json({ error="Unknown private key parameter [" .. pkeyparam .. "]" })
