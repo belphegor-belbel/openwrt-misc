@@ -42,7 +42,7 @@ function add_spool()
       if not f and meta and meta.name == "spool_file" then
         f = io.open(tmpfile, "w")
         if (f == nil) then
-          luci.http.status(503, "Error: unable to write file")
+          luci.http.write_json({ error="Unable to write temporary file" })
           return
         end
       end
@@ -64,11 +64,8 @@ function add_spool()
 
   f = io.popen(faxspooler .. " addspool " .. exten .. " " .. tmpfile)
   if (f == nil) then
-    luci.http.status(503, "Error: unable to add spool")
     os.remove(tmpfile)
-
-    luci.http.prepare_content("text/html")
-    luci.http.write("<html><body><div>Error: unable to add spool. <a href=\"../\">Return</a></div></body></html>")
+    luci.http.write_json({ error="faxspooler addspool failed." })
     return
   end
 
@@ -88,12 +85,7 @@ function add_spool()
   os.remove(tmpfile)
 
   if string.len(result) > 0 then
-    local p = json.new()
-
-    p:parse(result)
-    luci.http.write("<html><body><pre>" .. p:get().error .. "</pre><br/> <a href=\"../\">Return</a></body></html>")
-  else
-    luci.http.redirect(luci.dispatcher.build_url("admin/services/faxspooler"))
+    luci.http.write(result);
   end
 end
 
@@ -151,5 +143,3 @@ function del_spool()
 
   f:close()
 end
-
-

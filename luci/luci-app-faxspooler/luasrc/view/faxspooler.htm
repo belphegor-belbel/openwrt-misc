@@ -45,33 +45,42 @@
 
   XHR.poll(60, '<%=url("admin/services/faxspooler/manage/listspool")%>', null,
     function(x, data) {
-      updateSpoolList(data);
+      refreshSpoolList(data);
     });
 
 function spool_upload() {
   var extension = div_upload.querySelector("#extension").value;
-  var spoolfile = document.getElementById("spool_file").value;
-  var form = document.getElementsByName("cbi")[0];
+  var spoolfile = document.getElementById("spool_file").files[0];
 
   if (!extension || !extension.length) {
      spool_output.innerHTML = "<em><%=pcdata(translate("Destination field must not be empty!"))%></em>";
+     div_upload.querySelector("#extension").focus();
      setTimeout(function() { spool_output.innerHTML = ""; }, 5000);
      return;
   }
 
-  if (!spoolfile || !spoolfile.length) {
+  if (!spoolfile) {
      spool_output.innerHTML = "<em><%=pcdata(translate("File must be specified!"))%></em>";
+     document.getElementById("spool_file").focus();
      setTimeout(function() { spool_output.innerHTML = ""; }, 5000);
      return;
   }
 
-  if (!form) {
-     spool_output.innerHTML = "<em><%=pcdata(translate("Form not found!"))%></em>";
-  }
+  var formData = new FormData();
+  formData.append("extension", extension);
+  formData.append("spool_file", spoolfile);
 
-  form.enctype = "multipart/form-data";
-  form.action = "<%=url("admin/services/faxspooler/manage/addspool")%>";
-  form.submit();
+  L.showModal(_('Adding spool...'), [
+    E('p', { class: 'spinning' }, _('Adding spool. Please wait...'))]); 
+
+  xhr = new XMLHttpRequest();
+  xhr.open("POST", "<%=url("admin/services/faxspooler/manage/addspool")%>");
+  xhr.onload = function() {
+    L.hideModal();
+
+    refreshSpoolList();
+  };
+  xhr.send(formData);
 }
 
 function spool_view(id) {
