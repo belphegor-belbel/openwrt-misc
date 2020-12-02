@@ -1,0 +1,400 @@
+#!/usr/bin/lua
+
+-- Requires: find, logger, cp, mv, mkdir, basename, date (busybox)
+-- Requires: ghostscript (TIFF to PDF)
+-- Requires: tiff-utils
+-- Requires: luci-lib-jsonc
+
+local json = require "luci.jsonc"
+
+dofile( "/etc/faxspooler.cfg" )
+
+local ghostscript = "/usr/bin/gs"
+local find = "/usr/bin/find"
+local log = "/usr/bin/logger"
+local cp = "/bin/cp"
+local mv = "/bin/mv"
+local mkdir = "/bin/mkdir"
+local pdf2dsc = "/usr/bin/pdf2dsc"
+local tiffinfo = "/usr/bin/tiffinfo"
+local basename = "/usr/bin/basename"
+local date = "/bin/date"
+local tiff2pdf = "/usr/bin/tiff2pdf"
+
+function logger(level, message)
+  if (level == 0) then
+    os.execute(log .. " -p daemon.debug faxspooler: " .. message)
+  elseif (level == 1) then
+    os.execute(log .. " -p daemon.info faxspooler: " .. message)
+  elseif (level == 2) then
+    os.execute(log .. " -p daemon.warning faxspooler: " .. message)
+  elseif (level == 3) then
+    os.execute(log .. " -p daemon.error faxspooler: " .. message)
+  end
+end
+
+local sendfaxspool = coroutine.create(
+  function()
+    f = io.popen(find .. " " .. spooldir .. "/ -type f -iname *.spl")
+    if (f == nil) then
+      logger(3, "Unable to open find result.")
+    end
+
+    for line in f:lines() do
+      result = 0
+
+      resultfile = io.open(line .. ".result")
+      if (resultfile ~= nil) then
+        resultline = resultfile:read()
+        if (resultline == "SUCCESS") then
+          result = 1
+        elseif (resultline == "SENDING") then
+          result = 2
+        elseif (resultline == "FAILED") then
+          result = 3
+        end
+
+        resultfile:close()
+      end
+
+      if (result == 1) then
+        logger(1, "FAX spool [" .. line .. "] sent successfully. spool removed.")
+
+        os.remove(line)
+        os.remove(line .. ".result")
+        os.remove(string.gsub(line, ".spl", ".tif"))
+      elseif (result == 2) then
+        logger(1, "FAX spool [" .. line .. "] is now sending. skipping.")
+      elseif (result == 3) then
+        logger(1, "FAX spool [" .. line .. "] was already failed. skipping.")
+      else
+        do_outgoing = true
+
+        f2 = io.popen(find .. " " .. astoutgoingdir .. "/ -type f | wc -l")
+        if (f2 == nil) then
+          logger(3, "Unable to open outgoing dir.")
+          do_outgoing = false
+        else
+          currentoutgoing = 0
+          for line2 in f2:lines() do
+            currentoutgoing = tonumber(line2)
+          end
+
+          if (maxoutgoing > 0) and (currentoutgoing >= maxoutgoing) then
+            logger(2, "Max outgoing calls reached. Delaying spool [" .. line .. "].")
+            do_outgoing = false
+          end
+
+          f2:close()
+        end
+
+        if (do_outgoing) then
+          logger(1, "FAX spool [" .. line .. "] is going to send.")
+
+          astspoolfilename = os.tmpname()
+
+          if (os.execute(cp .. " " .. line .. " " .. astspoolfilename) == 0) then
+            astspool = io.open(astspoolfilename, "a+")
+            if (astspool ~= nil) then
+              astspool:write("Set: FAXFILE=" .. string.gsub(line, ".spl", ".tif") .. "\n")
+              astspool:write("Set: FAXRESULTFILE=" .. line .. ".result\n")
+              astspool:close()
+
+              if (os.execute(mv .. " " .. astspoolfilename .. " " .. astoutgoingdir) ~= 0) then
+                logger(2, "Unable to move asterisk spool file [" .. astspoolfilename .. "] to [" .. astoutgoingdir .. "]")
+              end
+            else
+              logger(2, "Unable to open asterisk spool file [" .. astspoolfilename .. "]")
+            end
+          else
+            logger(2, "Unable to copy file [" .. line .. "] to [" .. astspoolfilename .. "].")
+          end
+
+          os.remove(astspoolfilename)
+        end
+      end
+    end
+
+    f:close()
+  end
+)
+
+local addspool = coroutine.create(
+  function(arg)
+    local e={}
+
+    if (#arg < 3) then
+      e.error = "Error: insufficient parameter. [dest number], [TIF/PDF file to send] must be specified."
+      print(json.stringify(e))
+    end
+
+    spoolfile = os.tmpname()
+    os.remove(spoolfile)
+
+    spool = io.open(spoolfile .. ".spl", "w")
+    if (spool == nil) then
+      os.remove(spoolfile .. ".spl")
+
+      e.error = "Error: Unable to open spool file [" .. spoolfile .. "]"
+      print(json.stringify(e))
+    end
+
+    spool:write("Channel: SIP/" .. arg[2] .. "@" .. sippeer .. "\n")
+    spool:write("Extension: " .. arg[2] .. "\n")
+    spool:write("Context: " .. faxcontext .. "\n")
+
+    spool:close()
+
+    if (os.execute(tiffinfo .. " " .. arg[3] .. " > /dev/null 2>&1") == 0) then
+      if (os.execute(cp .. " " .. arg[3] .. " " .. spoolfile .. ".tif") ~= 0) then
+        os.remove(spoolfile .. ".spl")
+
+        e.error = "Error: Unable to copy TIFF file [" .. arg[3] .. "] to [" .. spoolfile .. ".tif]"
+        print(json.stringify(e))
+        return
+      end
+    elseif (os.execute(pdf2dsc .. " " .. arg[3] .. " /dev/null > /dev/null 2>&1") == 0) then
+      f = io.popen(ghostscript .. " -r204x204 -q -dNOPAUSE -dBATCH -dQUIET -dFIXEDMEDIA -o " .. spoolfile .. ".tif -sDEVICE=tiffg4 -sPAPERSIZE=a4 " .. arg[3] .. " 2>&1")
+      if (f == nil) then
+        os.remove(spoolfile .. ".spl")
+
+        e.error = "Error: Unable to convert PDF file [" .. arg[3] .. "] to [" .. spoolfile .. ".tif]"
+        print(json.stringify(e))
+        return
+      end
+
+      errormessage = ""
+      for line in f:lines() do
+        errormessage = errormessage .. line .. "\n"
+      end
+
+      f:close()
+
+      if (#errormessage > 0) then
+        local e={}
+
+        os.remove(spoolfile .. ".spl")
+        os.remove(spoolfile .. ".tif")
+
+        e.error = "Error: Unable to convert PDF file [" .. arg[3] .. "] to [" .. spoolfile .. ".tif]: " .. errormessage
+        print(json.stringify(e))
+        return
+      end
+    else
+      os.remove(spoolfile .. ".spl")
+
+      e.error = "Error: Unknown file type."
+      print(json.stringify(e))
+      return
+    end
+
+    f = io.popen(tiffinfo .. " " .. spoolfile .. ".tif", "r")
+    if (f == nil) then
+      os.remove(spoolfile .. ".spl")
+
+      e.error = "Error: TIFF file [" .. spoolfile .. "] is not found."
+      print(json.stringify(e))
+      return
+    end
+
+    f:close()
+
+    if (os.execute(mv .. " " .. spoolfile .. ".* " .. spooldir .. "/") == 0) then
+      logger(1, "FAX spool [" .. spoolfile .. "] [To:" .. arg[2] .. "] added successfully.")
+    else
+      os.remove(spoolfile .. ".spl")
+
+      e.error = "Error: Unable to move spool file [" .. spoolfile .. "] to [" .. spooldir .. "]"
+      print(json.stringify(e))
+    end
+  end
+)
+
+local listspool = coroutine.create(
+  function()
+    local e={}
+
+    f = io.popen(find .. " " .. spooldir .. "/ -type f -iname *.spl")
+    if (f == nil) then
+      e.error = "Error: unable to run /usr/bin/find"
+      print(json.stringify(e))
+      return
+    end
+
+    for line in f:lines() do
+      local r={}
+
+      r.splfile = line
+
+      d = io.popen(basename .. " " .. line)
+      if (d ~= nil) then
+        r.id = string.gsub(d:read(), ".spl", "")
+      end
+
+      d = io.popen(date .. " -r " .. line .. " -u +\"%s\"")
+      if (d ~= nil) then
+        r.lastmod = d:read()
+        d:close()
+      end
+
+      d = io.open(line, "r")
+      if (d ~= nil) then
+        for splline in d:lines() do
+          if (string.lower(string.sub(splline, 1, 11)) == "extension: ") then
+            r.extension = string.sub(splline, 12, 99)
+          end
+        end
+
+        d:close()
+      end
+
+      r.tifffile = string.gsub(line, ".spl", ".tif")
+      d = io.open(r.tifffile, "r")
+      if (d ~= nil) then
+        r.size = d:seek("end")
+        d:close()
+
+        d = io.popen(tiffinfo .. " " .. r.tifffile .. " 2> /dev/null | grep \"^TIFF Directory \" | wc -l")
+        if (d ~= nil) then
+          r.pages = d:read()
+          d:close()
+        else
+          r.pages = -1
+        end
+      end
+
+      d = io.open(line .. ".result", "r")
+      if (d ~= nil) then
+        r.result = d:read()
+        r.result_detail = d:read()
+        d:close()
+      else
+        r.result = "NOT_PROCESSED"
+        r.result_detail = ""
+      end
+
+      e[ #e + 1 ] = r
+    end
+
+    f:close()
+
+    print(json.stringify(e))
+  end
+)
+
+local viewspool = coroutine.create(
+  function(arg)
+    if (#arg < 2) then
+      local e={}
+
+      e.error = "Error: insufficient parameter. [spool id] must be specified."
+      print(json.stringify(e))
+      return
+    end
+
+    f = io.open(spooldir .. "/" .. arg[2] .. ".spl", "r")
+    if (f == nil) then
+      local e={}
+
+      e.error = "Error: unable to find spool id [" .. arg[2] .. "]"
+      print(json.stringify(e))
+      return
+    end
+
+    f:close()
+
+    f = io.popen(tiff2pdf .. " " .. spooldir .. "/" .. arg[2] .. ".tif")
+    while f do
+      data = f:read(1024)
+      eof = (not data or data == "")
+
+      io.stdout:write(data)
+
+      if (eof) then
+        f:close()
+        f = nil
+      end
+    end
+
+    io.stdout:flush()
+  end
+)
+
+local delspool = coroutine.create(
+  function(arg)
+    if (#arg < 2) then
+      local e={}
+      e.error = "Error: insufficient parameter. [spool id] must be specified."
+      print(json.stringify(e))
+      return
+    end
+
+    f = io.open(spooldir .. "/" .. arg[2] .. ".spl", "r")
+    if (f == nil) then
+      local e={}
+
+      e.error = "Error: unable to find spool [" .. arg[2] .. "]"
+      print(json.stringify(e))
+      return
+    end
+
+    f:close()
+    if (os.remove(spooldir .. "/" .. arg[2] .. ".spl") == nil) then
+      local e={}
+
+      e.error = "Error: unable to remove spool [" .. arg[2] .. "]"
+      print(json.stringify(e))
+      return
+    end
+
+    os.remove(spooldir .. "/" .. arg[2] .. ".tif")
+    os.remove(spooldir .. "/" .. arg[2] .. ".spl.result")
+
+    logger(1, "FAX spool [" .. arg[2] .. "] was removed due to request.")
+  end
+)
+
+-- main
+
+-- create spool directory
+if (os.execute(mkdir .. " -p " .. spooldir) ~= 0) then
+  print("Error: Unable to create spool directory [" .. spooldir .. "].")
+  os.exit(1)
+end
+if (os.execute(mkdir .. " -p " .. astoutgoingdir) ~= 0) then
+  print("Error: Unable to create asterisk's outgoing directory [" .. astoutgoingdir .. "].")
+  os.exit(1)
+end
+
+if (#arg < 1) then
+  print("Usage: faxspooler COMMAND ...")
+  print("")
+  print("  COMMAND:")
+  print("    service")
+  print("    addspool [dest tel number] [TIF/PDF file to send]")
+  print("    listspool")
+  print("    viewspool [spool id]")
+  print("    delspool [spool id]")
+
+  os.exit(0)
+end
+
+-- check configs
+
+if (arg[1] == "service") then
+  coroutine.resume(sendfaxspool)
+elseif (arg[1] == "addspool") then
+  coroutine.resume(addspool, arg)
+elseif (arg[1] == "listspool") then
+  coroutine.resume(listspool)
+elseif (arg[1] == "viewspool") then
+  coroutine.resume(viewspool, arg)
+elseif (arg[1] == "delspool") then
+  coroutine.resume(delspool, arg)
+else
+  print("Error: Unknown command: " .. arg[1])
+  os.exit(1)
+end
+
+os.exit(0)
+

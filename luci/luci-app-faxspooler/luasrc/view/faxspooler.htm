@@ -1,0 +1,155 @@
+<script type="text/javascript">
+//<![CDATA[
+  function refreshSpoolList() {
+    xhr = new XMLHttpRequest();
+    xhr.open("POST", "<%=url("admin/services/faxspooler/manage/listspool")%>");
+    xhr.onload = function() {
+      updateSpoolList(JSON.parse(xhr.responseText));
+    };
+    xhr.send();
+  }
+
+  function updateSpoolList(data) {
+    var dest = document.getElementById("faxspooler_spoollist");
+
+    if (data && dest) {
+      var table = E('table', { border: 0, width: '100%' }, [
+        E('tr', {}, [
+          E('th', {}, _("ID")),
+          E('th', {}, _("Created")),
+          E('th', {}, _("Destination")),
+          E('th', {}, _("Size") + ' / ' + _("Pages")),
+          E('th', {}, _("Action")),
+        ]),
+      ]);
+
+      for (var item in data) {
+        var tableItem = E('tr', {}, [
+          E('td', { align: 'right' }, data[item]['id']),
+          E('td', { align: 'right' }, (new Date(data[item]['lastmod'] * 1000)).toLocaleString()),
+          E('td', { align: 'right' }, data[item]['extension']),
+          E('td', { align: 'right' }, data[item]['size'] + " / " + data[item]['pages']),
+          E('td', { align: 'right', title: data[item]['result_detail'] }, data[item]['result']),
+          E('td', { align: 'center' }, [
+            E('div', { class: 'cbi-button cbi-button-download', onclick: 'spool_view("' + data[item]['id'] + '")' }, _("View")),
+            E('div', { class: 'cbi-button cbi-button-remove', onclick: 'spool_cancel("' + data[item]['id'] + '")' }, _("Remove")),
+          ]),
+        ]);
+
+        table.append(tableItem);
+      }
+
+      dest.innerHTML = table.outerHTML;
+    }
+  }
+
+  XHR.poll(60, '<%=url("admin/services/faxspooler/manage/listspool")%>', null,
+    function(x, data) {
+      updateSpoolList(data);
+    });
+
+function spool_upload() {
+  var extension = div_upload.querySelector("#extension").value;
+  var spoolfile = document.getElementById("spool_file").value;
+  var form = document.getElementsByName("cbi")[0];
+
+  if (!extension || !extension.length) {
+     spool_output.innerHTML = "<em><%=pcdata(translate("Destination field must not be empty!"))%></em>";
+     setTimeout(function() { spool_output.innerHTML = ""; }, 5000);
+     return;
+  }
+
+  if (!spoolfile || !spoolfile.length) {
+     spool_output.innerHTML = "<em><%=pcdata(translate("File must be specified!"))%></em>";
+     setTimeout(function() { spool_output.innerHTML = ""; }, 5000);
+     return;
+  }
+
+  if (!form) {
+     spool_output.innerHTML = "<em><%=pcdata(translate("Form not found!"))%></em>";
+  }
+
+  form.enctype = "multipart/form-data";
+  form.action = "<%=url("admin/services/faxspooler/manage/addspool")%>";
+  form.submit();
+}
+
+function spool_view(id) {
+  var newwin = window.open("about:blank", "SpoolView", "menubar=no,location=no,status=no");
+  var form = document.createElement("form");
+
+  var idfield = document.createElement("input");
+  idfield.type = "text";
+  idfield.name = "view_id";
+  idfield.value = id;
+  form.appendChild(idfield);
+
+  form.method = "post";
+  form.action = document.URL;
+  if (form.action.substring(form.action.length - 1) !== "/") {
+    form.action += "/";
+  }
+  form.action += "/manage/viewspool";
+
+  newwin.document.documentElement.appendChild(form);
+
+  form.submit();
+}
+
+function spool_cancel(id) {
+  if (window.confirm("Cancel FAX spool ID: \"" + id + "\"?")) {
+    var formData = new FormData();
+    formData.append("cancel_id", id);
+
+    xhr = new XMLHttpRequest();
+    xhr.open("POST", "<%=url("admin/services/faxspooler/manage/delspool")%>");
+    xhr.onload = function() {
+      if (xhr.responseText != null) {
+        if (xhr.responseText.length > 0) {
+          var message = JSON.parse(xhr.responseText);
+
+          if (message.error.length > 0) {
+            alert("Cancelling spool failed [" + message.error + "]");
+          } else {
+          alert("Cancelling spool failed [" + message + "]");
+          }
+        }
+      }
+
+      refreshSpoolList();
+    };
+    xhr.send(formData);
+  }
+}
+//]]>
+</script>
+<style>.mar-10 {margin-left: 50px; margin-right: 10px;}</style>
+
+<h4><%:Spool list%></h4>
+
+<fieldset class="cbi-section">
+  <p id="faxspooler_spoollist">
+    <em><%:Collecting data...%></em>
+  </p>
+</fieldset>
+
+<h4><%:Add spool%></h4>
+
+<div class="tr cbi-section-table-row" id="div_upload">
+  <div class="td left">
+    <input type="text" size="16" placeholder="<%:Destination%>" name="extension" id="extension" />
+  </div>
+
+  <div class="td left">
+    <input type="file" name="spool_file" id="spool_file" accept="application/pdf,.pdf,image/tiff,.tif" />
+    (<%:only .PDF/.TIF/.TIFF can be used%>)
+  </div>
+
+  <div class="td left">
+    <input class="cbi-buttion cbi-button-add" type="submit" onclick="spool_upload(); return false;" value="<%:Upload%>" title="<%:Add to spool%>" />
+  </div>
+</div>
+
+<div class="spool-output">
+  <span id="spool_output"></span>
+</div>
