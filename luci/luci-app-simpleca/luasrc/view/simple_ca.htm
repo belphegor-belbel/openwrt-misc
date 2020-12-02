@@ -244,6 +244,13 @@ function createNewCA(ev) {
     return;
   }
 
+  if (email.value.length < 1) {
+    formcheckresult.innerHTML = "<em><%=pcdata(translate("E-mail address must be specified."))%>";
+    setTimeout(function() { formcheckresult.innerHTML = ""; }, 5000);
+    email.focus();
+    return;
+  }
+
   var formData = new FormData();
   formData.append("ca_name", document.getElementById("ca_name").value);
   formData.append("ca_valid_days", document.getElementById("ca_valid_days").value);
@@ -331,8 +338,12 @@ function removeCA(name) {
   if (confirm(_('Really delete CA [' + name + ']?\r\n\r\nThis removes not only CA itself, but also issued ALL certificates issued from it.'))) {
     (new XHR()).get("<%=url("admin/services/simple_ca/manage/ca/delete")%>", { ca_name: name },
       function(r) {
-        if (r.responseText.length > 0) {
-          alert(r.responseText);
+        var res = JSON.parse(r.responseText);
+
+        if (res.error) {
+          if (res.error.length > 0) {
+            alert(res.error);
+          }
         }
 
         refreshCAlist();
@@ -431,8 +442,6 @@ function changeCApassword() {
           alert(_("Changing CA password failed (" + message.error + ")!"));
           return;
        }
-      } else {
-          alert(message);
       }
     }
 
@@ -735,8 +744,6 @@ function revokeCert() {
           alert(_("Revoking certificate failed (" + message.error + ")!"));
           return;
        }
-      } else {
-          alert(message);
       }
     }
 
@@ -800,6 +807,13 @@ function createNewPkeyAndCsr(ev) {
     formcheckresult.innerHTML = "<em><%=pcdata(translate("Private key password does not match."))%>";
     setTimeout(function() { formcheckresult.innerHTML = ""; }, 5000);
     pkeypass.focus();
+    return;
+  }
+
+  if (email.value.length < 1) {
+    formcheckresult.innerHTML = "<em><%=pcdata(translate("E-mail address must be specified."))%>";
+    setTimeout(function() { formcheckresult.innerHTML = ""; }, 5000);
+    email.focus();
     return;
   }
 

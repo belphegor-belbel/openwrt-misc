@@ -279,7 +279,7 @@ function ca_create()
   local sslCnf = create_temp_opensslcnf(ca_rootdir .. "/" .. ca_name .. "/")
   if (os.execute(OPENSSL .. " ca -config " .. sslCnf .. " -create_serial " ..
     "-passin file:" .. passfile .. " -out " .. ca_rootdir .. "/" .. ca_name ..
-    "/cacert.pem -days " .. ca_valid_days .. " -batch -noemailDN -keyfile " ..
+    "/cacert.pem -days " .. ca_valid_days .. " -batch -keyfile " ..
     ca_rootdir .. "/" .. ca_name .. "/private/cakey.pem -selfsign " ..
     "-extensions v3_ca -in " .. ca_rootdir .. "/" .. ca_name .. "/careq.pem")
     ~= 0) then
@@ -291,6 +291,8 @@ function ca_create()
   os.remove(passfile)
   os.remove(sslCnf)
   os.execute(LOGGER .. " 'Created new CA [" .. ca_name .. "]'")
+
+  luci.http.write_json({ ok="Created new CA [" .. ca_name .. "]" })
 end
 
 function ca_list()
@@ -336,7 +338,7 @@ function ca_list()
     end
   end
 
-  luci.http.write(json.stringify(e))
+  luci.http.write_json(e)
 
   f:close()
 end
@@ -347,9 +349,7 @@ function ca_downloadcert()
   local cacert_pem = ca_rootdir .. "/" .. ca_name .. "/cacert.pem"
   f = io.open(cacert_pem)
   if (f == nil) then
-    local r={}
-    r.error = "Unable to find CA " .. ca_name
-    luci.http.write(json.stringify(r))
+    luci.http.write_json({ error="Unable to find CA " .. ca_name })
     return
   end
 
@@ -374,9 +374,7 @@ function ca_backup()
   local cacert_pem = ca_rootdir .. "/" .. ca_name .. "/cacert.pem"
   f = io.open(cacert_pem)
   if (f == nil) then
-    local r={}
-    r.error = "Unable to find CA " .. ca_name
-    luci.http.write(json.stringify(r))
+    luci.http.write_json({ error= "Unable to find CA " .. ca_name })
     return
   end
 
@@ -399,10 +397,11 @@ function ca_delete()
 
   os.execute(LOGGER .. " 'Removing CA [" .. ca_name .. "]'");
   if (os.execute(RM .. " -fR " .. ca_rootdir .. "/" .. ca_name) ~= 0) then
-    local r={}
-    r.error = "Unable to delete CA " .. ca_name
-    luci.http.write(json.stringify(r))
+    luci.http.write_json({ error="Unable to delete CA " .. ca_name })
   end
+
+  os.execute(LOGGER .. " 'Removed CA [" .. ca_name .. "]'");
+  luci.http.write_json({ ok="Removed CA [" .. ca_name .. "]" })
 end
 
 function ca_issuecrl()
@@ -525,6 +524,7 @@ function ca_changepassword()
   end
 
   os.execute(LOGGER .. " 'Changed password of CA [" .. ca_name .. "]'")
+  luci.http.write_json({ ok="Changed password of CA [" .. ca_name .. "]" })
 end
 
 function ca_checkrestore()
@@ -606,16 +606,20 @@ function ca_restore()
   luci.http.status(200, "OK")
   luci.http.prepare_content("application/json")
 
+  os.execute(LOGGER .. " 'Restoring CA...'")
+
+  os.execute(MKDIR .. " -p " .. ca_rootdir)
   if (os.execute(TAR .. " xzf " .. tmpArc .. " -C " .. ca_rootdir ..
     " > /dev/null 2>&1")
     ~= 0) then
     os.remove(tmpArc)
-    luci.http.write_json({ error="Restore failed." })
+    luci.http.write_json({ error="CA Restore failed." })
     return
   end
 
   os.remove(tmpArc)
-  luci.http.write_json({ ok="Restored." })
+  os.execute(LOGGER .. " 'CA restored.'")
+  luci.http.write_json({ ok="CA restored." })
 end
 
 function cert_list()
@@ -626,9 +630,7 @@ function cert_list()
 
   f = io.open(ca_rootdir .. "/" .. ca_name .. "/cacert.pem")
   if (f == nil) then
-    local r={}
-    r.error = "Unable to find CA " .. ca_name
-    luci.http.write(json.stringify(r))
+    luci.http.write_json({ error="Unable to find CA " .. ca_name})
     return
   end
 
@@ -638,9 +640,7 @@ function cert_list()
   f = io.popen(OPENSSL .. " x509 -in " .. ca_rootdir .. "/" .. ca_name ..
     "/cacert.pem" .. " -noout -serial | " .. SED .. " \"s/^[^=]*=//\"")
   if (f == nil) then
-    local r={}
-    r.error = "Unable to find CA " .. ca_name
-    luci.http.write(json.stringify(r))
+    luci.http.write_json({ error="Unable to find CA " .. ca_name })
     return
   end
 
@@ -651,8 +651,8 @@ function cert_list()
     " " .. TR .. " '\t' '\n'")
   if (f == nil) then
     local r={}
-    r.error = "Unable to open index file for CA " .. ca_name
-    luci.http.write(json.stringify(r))
+    r.error = 
+    luci.http.write_json({ error="Unable to open index file for CA " .. ca_name })
     return
   end
 
@@ -697,7 +697,7 @@ function cert_list()
 
   f:close()
 
-  luci.http.write(json.stringify(e))
+  luci.http.write_json(e)
 end
 
 function cert_check_csr()
@@ -743,7 +743,7 @@ function cert_check_csr()
   d:close()
   os.remove(tmpCsr)
 
-  luci.http.write(json.stringify(r))
+  luci.http.write_json(r)
 end
 
 function cert_issue()
@@ -791,6 +791,9 @@ function cert_issue()
   local subjectName = tostring(d:read())
   d:close()
 
+  os.execute(LOGGER .. " 'Issuing certificate subject [" .. subjectName ..
+    "] from CA [" .. ca_name .. "'")
+
   -- create password file
   local passfile = os.tmpname()
   local f = io.open(passfile, "w")
@@ -808,7 +811,7 @@ function cert_issue()
   local sslCnf = create_temp_opensslcnf(ca_rootdir .. "/" .. ca_name .. "/")
   if (os.execute(OPENSSL .. " ca -config " .. sslCnf .. " -passin file:" ..
     passfile .. " -policy policy_anything -in " .. tmpCsr .. " -out " ..
-    tmpCrt .. " -days " .. cert_valid_days .. " -batch -noemailDN -keyfile " ..
+    tmpCrt .. " -days " .. cert_valid_days .. " -batch -keyfile " ..
     ca_rootdir .. "/" .. ca_name .. "/private/cakey.pem -extensions " .. certext)
     ~= 0) then
     os.remove(tmpCrt)
@@ -834,7 +837,10 @@ function cert_issue()
   os.remove(passfile)
   os.remove(sslCnf)
 
-  os.execute(LOGGER .. " 'Issued certificate from [" .. ca_name .. "]'")
+  os.execute(LOGGER .. " 'Issued certificate subject [" .. subjectName ..
+    "] from CA [" .. ca_name .. "'")
+  luci.http.write_json({ ok="Issued certificate subject [" .. subjectName ..
+    "] from CA [" .. ca_name .. "" })
 end
 
 function cert_downloadcert()
@@ -845,9 +851,7 @@ function cert_downloadcert()
   local cert_pem = ca_rootdir .. "/" .. ca_name .. "/newcerts/" .. cert_serial .. ".pem"
   f = io.open(cert_pem)
   if (f == nil) then
-    local r={}
-    r.error = "Unable to find certificate " .. cert_serial .. " CA " .. ca_name
-    luci.http.write(json.stringify(r))
+    luci.http.write_json({ error="Unable to find certificate " .. cert_serial .. " in CA " .. ca_name })
     return
   end
 
@@ -889,19 +893,15 @@ function cert_revoke()
     (revoke_reason ~= "CACompromise") and (revoke_reason ~= "affiliationChanged") and
     (revoke_reason ~= "superseded") and (revoke_reason ~= "cessationOfOperation") and
     (revoke_reason ~= "certificateHold") and (revoke_reason ~= "removeFromCRL")) then
-    local r={}
-    r.error = "Bad revocation reason [" .. revoke_reason .. "]"
-    luci.http.write(json.stringify(r))
+    luci.http.write_json({ error="Bad revocation reason [" .. revoke_reason .. "]" })
     return
   end
 
   local cert_pem = ca_rootdir .. "/" .. ca_name .. "/newcerts/" .. cert_serial .. ".pem"
   f = io.open(cert_pem)
   if (f == nil) then
-    local r={}
-    r.error = "Unable to find certificate " .. cert_serial .. " in CA [" ..
-      ca_name .. "]"
-    luci.http.write(json.stringify(r))
+    luci.http.write_json({ error="Unable to find certificate " .. cert_serial ..
+      " in CA [" .. ca_name .. "]"})
     return
   end
 
@@ -911,9 +911,7 @@ function cert_revoke()
   f = io.popen(OPENSSL .. " x509 -in " .. ca_rootdir .. "/" .. ca_name ..
     "/cacert.pem" .. " -noout -serial | " .. SED .. " \"s/^[^=]*=//\"")
   if (f == nil) then
-    local r={}
-    r.error = "Unable to find CA " .. ca_name
-    luci.http.write(json.stringify(r))
+    luci.http.write_json({ error="Unable to find CA " .. ca_name })
     return
   end
 
@@ -921,9 +919,7 @@ function cert_revoke()
   f:close()
 
   if (ca_serial == cert_serial) then
-    local r={}
-    r.error = "Unable to revoke cert of CA [" .. ca_name .. "] itself"
-    luci.http.write(json.stringify(r))
+    luci.http.write_json({ error="Unable to revoke cert of CA [" .. ca_name .. "] itself" })
     return
   end
 
@@ -949,9 +945,7 @@ function cert_revoke()
     os.remove(passfile)
     os.remove(sslCnf)
 
-    local r={}
-    r.error = "Revocation failed"
-    luci.http.write(json.stringify(r))
+    luci.http.write_json({ error="Revocation failed" })
     return
   end
   os.remove(passfile)
@@ -959,6 +953,8 @@ function cert_revoke()
 
   os.execute(LOGGER .. " 'Revoked certificate [" .. cert_serial ..
     "] from [" .. ca_name .. "]'")
+  luci.http.write_json({ ok="Revoked certificate [" .. cert_serial ..
+    "] from [" .. ca_name .. "]" })
 end
 
 function create_key_csr()
