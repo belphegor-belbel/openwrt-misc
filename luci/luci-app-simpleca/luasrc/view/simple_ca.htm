@@ -336,18 +336,23 @@ function backupCA(name) {
 
 function removeCA(name) {
   if (confirm(_('Really delete CA [' + name + ']?\r\n\r\nThis removes not only CA itself, but also issued ALL certificates issued from it.'))) {
-    (new XHR()).get("<%=url("admin/services/simple_ca/manage/ca/delete")%>", { ca_name: name },
-      function(r) {
-        var res = JSON.parse(r.responseText);
+    var formData = new FormData();
+    formData.append("ca_name", name);
 
-        if (res.error) {
-          if (res.error.length > 0) {
-            alert(res.error);
-          }
+    var xhr = new XMLHttpRequest();
+    xhr.open("POST", "<%=url("admin/services/simple_ca/manage/ca/delete")%>");
+    xhr.onload = function () {
+      var res = JSON.parse(xhr.responseText);
+
+      if (res.error) {
+        if (res.error.length > 0) {
+          alert(res.error);
         }
+      }
 
-        refreshCAlist();
-      });
+      refreshCAlist();
+    }
+    xhr.send(formData);
   }
 }
 
