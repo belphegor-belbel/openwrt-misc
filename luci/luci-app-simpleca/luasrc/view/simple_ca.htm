@@ -94,7 +94,8 @@ function updateCertList() {
     for (var item in currentCertList) {
       var status;
       var showItem = false;
-      if (currentCertList[item]['status'] == "V") {
+      if ((currentCertList[item]['status'] == "V") ||
+        (currentCertList[item]['status'] == "E")) {
         if ((currentCertList[item]['expires'] * 1000) < (new Date()).getTime()) {
           status = _("Expired");
 

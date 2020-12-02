@@ -679,7 +679,7 @@ function cert_list()
         " x509 -in " .. ca_rootdir .. "/" .. ca_name .. "/newcerts/" .. r.serial ..
         ".pem -noout -startdate | " .. SED .. " s/^.*=//`\"")
       if (d ~= nil) then
-        r.created = tonumber(d:read())
+        r.created = d:read()
         d:close()
       end
 
@@ -687,7 +687,7 @@ function cert_list()
         " x509 -in " .. ca_rootdir .. "/" .. ca_name .. "/newcerts/" .. r.serial ..
         ".pem -noout -enddate | " .. SED .. " s/^.*=//`\"")
       if (d ~= nil) then
-        r.expires = tonumber(d:read())
+        r.expires = d:read()
         d:close()
       end
 
