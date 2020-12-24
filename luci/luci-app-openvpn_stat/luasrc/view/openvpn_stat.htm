@@ -1,0 +1,61 @@
+<script type="text/javascript">
+//<![CDATA[
+  function refreshStatus() {
+    xhr = new XMLHttpRequest();
+    xhr.open("POST", "<%=url("admin/status/openvpn_stat/getstatus")%>");
+    xhr.onload = function() {
+      updateStatus(JSON.parse(xhr.responseText));
+    };
+    xhr.send();
+  }
+
+  function updateStatus(data) {
+    var dest = document.getElementById("openvpn_status");
+
+    if (data && dest) {
+      var table = E('table', { border: 0, width: '100%' }, [
+        E('tr', {}, [
+          E('th', {}, _("Instance")),
+          E('th', {}, _("Common Name")),
+          E('th', {}, _("Real Address")),
+          E('th', {}, _("Virtual Address")),
+          E('th', {}, _("Bytes Received")),
+          E('th', {}, _("Bytes Sent")),
+          E('th', {}, _("Connected Since")),
+        ]),
+      ]);
+
+      for (var item in data) {
+        var tableItem = E('tr', {}, [
+          E('td', { align: 'right' }, data[item]['instance']),
+          E('td', { align: 'right' }, data[item]['common_name']),
+          E('td', { align: 'right' }, data[item]['real_address']),
+          E('td', { align: 'right' }, data[item]['virtual_address']),
+          E('td', { align: 'right' }, data[item]['bytes_received']),
+          E('td', { align: 'right' }, data[item]['bytes_sent']),
+          E('td', { align: 'right' }, (new Date(data[item]['connected'] * 1000)).toLocaleString()),
+          E('td', { align: 'center' }, [
+            // E('div', { class: 'cbi-button cbi-button-remove', onclick: 'disconnect("' + data[item]['common_name'] + '")' }, _("Disconnect")),
+          ]),
+        ]);
+
+        table.append(tableItem);
+      }
+
+      dest.innerHTML = table.outerHTML;
+    }
+  }
+
+  XHR.poll(60, '<%=url("admin/status/openvpn_stat/getstatus")%>', null,
+    function(x, data) {
+      updateStatus(data);
+    });
+//]]>
+</script>
+<style>.mar-10 {margin-left: 50px; margin-right: 10px;}</style>
+
+<fieldset class="cbi-section">
+  <p id="openvpn_status">
+    <em><%:Collecting data...%></em>
+  </p>
+</fieldset>
