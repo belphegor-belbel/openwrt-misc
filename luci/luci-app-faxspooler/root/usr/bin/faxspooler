@@ -139,7 +139,7 @@ local addspool = coroutine.create(
       print(json.stringify(e))
     end
 
-    spool:write("Channel: SIP/" .. arg[2] .. "@" .. sippeer .. "\n")
+    spool:write("Channel: " .. siptech .. "/" .. arg[2] .. "@" .. sippeer .. "\n")
     spool:write("Extension: " .. arg[2] .. "\n")
     spool:write("Context: " .. faxcontext .. "\n")
 
