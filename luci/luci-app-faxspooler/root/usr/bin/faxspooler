@@ -15,6 +15,8 @@ local log = "/usr/bin/logger"
 local cp = "/bin/cp"
 local mv = "/bin/mv"
 local mkdir = "/bin/mkdir"
+local chown = "/bin/chown"
+local chmod = "/bin/chmod"
 local pdf2dsc = "/usr/bin/pdf2dsc"
 local tiffinfo = "/usr/bin/tiffinfo"
 local basename = "/usr/bin/basename"
@@ -356,9 +358,17 @@ local delspool = coroutine.create(
 
 -- main
 
--- create spool directory
+-- create spool directory and set owner/permission
 if (os.execute(mkdir .. " -p " .. spooldir) ~= 0) then
   print("Error: Unable to create spool directory [" .. spooldir .. "].")
+  os.exit(1)
+end
+if (os.execute(chown .. " root:asterisk " .. spooldir) ~= 0) then
+  print("Error: Unable to set owner of directory [" .. spooldir .. "].")
+  os.exit(1)
+end
+if (os.execute(chmod .. " 0775 " .. spooldir) ~= 0) then
+  print("Error: Unable to set permission of directory [" .. spooldir .. "].")
   os.exit(1)
 end
 if (os.execute(mkdir .. " -p " .. astoutgoingdir) ~= 0) then
