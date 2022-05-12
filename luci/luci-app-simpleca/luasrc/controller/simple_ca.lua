@@ -177,11 +177,20 @@ function genPkeyAndCsr(destKeyFile, destCsrFile)
     luci.http.write_json({ error="Unknown private key parameter [" .. pkeyparam .. "]" })
     return 1
   end
-  if (os.execute(OPENSSL .. " genpkey " .. opensslparams .. " -aes256 " ..
-    "-pass file:" .. passfile .. " -out " .. destKeyFile) ~= 0) then
-    os.remove(passfile)
-    luci.http.write_json({ error="Unable to generate private key" })
-    return 1
+  if (pkeypass:len() > 0) then
+    if (os.execute(OPENSSL .. " genpkey " .. opensslparams .. " -aes256 " ..
+      "-pass file:" .. passfile .. " -out " .. destKeyFile) ~= 0) then
+      os.remove(passfile)
+      luci.http.write_json({ error="Unable to generate private key (with password)" })
+      return 1
+    end
+  else
+    if (os.execute(OPENSSL .. " genpkey " .. opensslparams ..
+      " -out " .. destKeyFile) ~= 0) then
+      os.remove(passfile)
+      luci.http.write_json({ error="Unable to generate private key (without password)" })
+      return 1
+    end
   end
 
   -- Generate CSR
@@ -207,11 +216,20 @@ function genPkeyAndCsr(destKeyFile, destCsrFile)
   if email and (#email > 0) then
     subj = subj .. "/emailAddress=" .. email
   end
-  if (os.execute(OPENSSL .. " req -new -batch -subj \"" .. subj .. "\" -key " ..
-    destKeyFile .. " -passin file:" .. passfile .. " -out " .. destCsrFile) ~= 0) then
-    os.remove(passfile)
-    luci.http.write_json({ error="Unable to generate certificate request" })
-    return 1
+  if (pkeypass:len() > 0) then
+    if (os.execute(OPENSSL .. " req -new -batch -subj \"" .. subj .. "\" -key " ..
+      destKeyFile .. " -passin file:" .. passfile .. " -out " .. destCsrFile) ~= 0) then
+      os.remove(passfile)
+      luci.http.write_json({ error="Unable to generate certificate request (with password)" })
+      return 1
+    end
+  else
+    if (os.execute(OPENSSL .. " req -new -batch -subj \"" .. subj .. "\" -key " ..
+      destKeyFile .. " -out " .. destCsrFile) ~= 0) then
+      os.remove(passfile)
+      luci.http.write_json({ error="Unable to generate certificate request (without password)" })
+      return 1
+    end
   end
 
   os.remove(passfile)
