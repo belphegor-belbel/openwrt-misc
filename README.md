@@ -14,3 +14,6 @@ These packages can be used via [feeds.conf](https://openwrt.org/docs/guide-devel
 1. Run `make` to build packages.
 1. When completed without any problems, packages should be exist under `bin/packages/(arch)/misc/`  
 (where `(arch)` is an architecture name such as "aarch64_cortex-a53").
+
+Please read the README.md in the separate directory.
+
