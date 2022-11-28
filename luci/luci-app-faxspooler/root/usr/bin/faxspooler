@@ -102,6 +102,14 @@ local sendfaxspool = coroutine.create(
               astspool:write("Set: FAXRESULTFILE=" .. line .. ".result\n")
               astspool:close()
 
+              if (os.execute(chown .. " " .. astspoolfilename) ~= 0) then
+                logger(2, "Unable to chown() on spool file [" .. astspoolfilename .. "]")
+              end
+
+              if (os.execute(chmod .. " 0775 " .. astspoolfilename) ~= 0) then
+                logger(2, "Unable to chmod() on spool file [" .. astspoolfilename .. "]")
+              end
+
               if (os.execute(mv .. " " .. astspoolfilename .. " " .. astoutgoingdir) ~= 0) then
                 logger(2, "Unable to move asterisk spool file [" .. astspoolfilename .. "] to [" .. astoutgoingdir .. "]")
               end
