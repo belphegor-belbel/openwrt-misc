@@ -371,11 +371,11 @@ if (os.execute(mkdir .. " -p " .. spooldir) ~= 0) then
   print("Error: Unable to create spool directory [" .. spooldir .. "].")
   os.exit(1)
 end
-if (os.execute(chown .. " root:asterisk " .. spooldir) ~= 0) then
+if (os.execute(chown .. " asterisk:asterisk " .. spooldir) ~= 0) then
   print("Error: Unable to set owner of directory [" .. spooldir .. "].")
   os.exit(1)
 end
-if (os.execute(chmod .. " 0775 " .. spooldir) ~= 0) then
+if (os.execute(chmod .. " 0664 " .. spooldir) ~= 0) then
   print("Error: Unable to set permission of directory [" .. spooldir .. "].")
   os.exit(1)
 end
