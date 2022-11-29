@@ -5,7 +5,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-faxspooler
-PKG_VERSION:=0.4
+PKG_VERSION:=0.5
 PKG_RELEASE:=0
 PKG_MAINTAINER:=Yasuhiko Kamata <belphegor@belbel.or.jp>
 PKG_LICENSE:=GPL-2.0
