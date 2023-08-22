@@ -1,7 +1,7 @@
 <script type="text/javascript">
 function refreshCAlist() {
   var xhr = new XMLHttpRequest();
-  xhr.open("GET", "<%=url("admin/services/simple_ca/manage/ca/list")%>");
+  xhr.open("GET", "<%=url("admin/services/simple_ca/ca_list")%>");
   xhr.onload = function() {
     var data = JSON.parse(xhr.responseText);
     var dest = document.getElementById("calist");
@@ -64,7 +64,7 @@ function refreshCertList() {
     formData.append("ca_name", ca);
 
     var xhr = new XMLHttpRequest();
-    xhr.open("POST", "<%=url("admin/services/simple_ca/manage/cert/list")%>");
+    xhr.open("POST", "<%=url("admin/services/simple_ca/cert_list")%>");
     xhr.onload = function() {
       currentCertList = JSON.parse(xhr.responseText);
       updateCertList();
@@ -261,7 +261,7 @@ function createNewCA(ev) {
     E('p', { class: 'spinning' }, _('Creating new CA. Please wait...'))]); 
 
   var xhr = new XMLHttpRequest();
-  xhr.open("POST", "<%=url("admin/services/simple_ca/manage/ca/create")%>");
+  xhr.open("POST", "<%=url("admin/services/simple_ca/ca_create")%>");
   xhr.onload = function() {
     L.hideModal();
 
@@ -301,7 +301,7 @@ function viewCA(name) {
   formData.append("ca_name", name);
 
   var xhr = new XMLHttpRequest();
-  xhr.open("POST", "<%=url("admin/services/simple_ca/manage/ca/downloadcert")%>");
+  xhr.open("POST", "<%=url("admin/services/simple_ca/ca_downloadcert")%>");
   xhr.responseType="blob";
   xhr.onload = function() {
     var objURL = URL.createObjectURL(xhr.response);
@@ -320,7 +320,7 @@ function backupCA(name) {
   formData.append("ca_name", name);
 
   var xhr = new XMLHttpRequest();
-  xhr.open("POST", "<%=url("admin/services/simple_ca/manage/ca/backup")%>");
+  xhr.open("POST", "<%=url("admin/services/simple_ca/ca_backup")%>");
   xhr.responseType="blob";
   xhr.onload = function() {
     var objURL = URL.createObjectURL(xhr.response);
@@ -340,7 +340,7 @@ function removeCA(name) {
     formData.append("ca_name", name);
 
     var xhr = new XMLHttpRequest();
-    xhr.open("POST", "<%=url("admin/services/simple_ca/manage/ca/delete")%>");
+    xhr.open("POST", "<%=url("admin/services/simple_ca/ca_delete")%>");
     xhr.onload = function () {
       var res = JSON.parse(xhr.responseText);
 
@@ -363,7 +363,7 @@ function issueCrl() {
   formData.append("crl_valid_days", document.getElementById('crl_valid_days').value);
 
   var xhr = new XMLHttpRequest();
-  xhr.open("POST", "<%=url("admin/services/simple_ca/manage/ca/issuecrl")%>");
+  xhr.open("POST", "<%=url("admin/services/simple_ca/ca_issuecrl")%>");
   xhr.responseType="blob";
   xhr.onload = function() {
     if (xhr.getResponseHeader("Content-Type").indexOf("application/json") >= 0) {
@@ -435,7 +435,7 @@ function changeCApassword() {
   formData.append("pkeypass_new", document.getElementById('pkeypass_new').value);
 
   var xhr = new XMLHttpRequest();
-  xhr.open("POST", "<%=url("admin/services/simple_ca/manage/ca/changepassword")%>");
+  xhr.open("POST", "<%=url("admin/services/simple_ca/ca_changepassword")%>");
   xhr.onload = function() {
     L.hideModal();
 
@@ -504,7 +504,7 @@ function restoreCA() {
     E('p', { class: 'spinning' }, _('Restoring CA. Please wait...'))]); 
 
   var xhr = new XMLHttpRequest();
-  xhr.open("POST", "<%=url("admin/services/simple_ca/manage/ca/restore")%>");
+  xhr.open("POST", "<%=url("admin/services/simple_ca/ca_restore")%>");
   xhr.onload = function() {
     var message = JSON.parse(xhr.responseText);
 
@@ -534,7 +534,7 @@ function checkBackup() {
   formData.append("backup_arc", backup_arc);
 
   var xhr = new XMLHttpRequest();
-  xhr.open("POST", "<%=url("admin/services/simple_ca/manage/ca/checkrestore")%>");
+  xhr.open("POST", "<%=url("admin/services/simple_ca/ca_checkrestore")%>");
   xhr.onload = function() {
     var message = JSON.parse(xhr.responseText);
 
@@ -613,7 +613,7 @@ function issueCertFromCSR(ev) {
   formData.append("cert_server", cert_server);
 
   var xhr = new XMLHttpRequest();
-  xhr.open("POST", "<%=url("admin/services/simple_ca/manage/cert/issue")%>");
+  xhr.open("POST", "<%=url("admin/services/simple_ca/cert_issue")%>");
   xhr.responseType="blob";
   xhr.onload = function() {
     if (xhr.getResponseHeader("Content-Type").indexOf("application/json") >= 0) {
@@ -664,7 +664,7 @@ function dialogIssueCertFromCSR(ev) {
   formData.append("csr_file", csr_file);
 
   var xhr = new XMLHttpRequest();
-  xhr.open("POST", "<%=url("admin/services/simple_ca/manage/cert/check_csr")%>");
+  xhr.open("POST", "<%=url("admin/services/simple_ca/cert_check_csr")%>");
   xhr.onload = function() {
     var csrData = JSON.parse(xhr.responseText);
 
@@ -715,7 +715,7 @@ function viewCert(name, subject, serial) {
   formData.append("cert_serial", serial);
 
   var xhr = new XMLHttpRequest();
-  xhr.open("POST", "<%=url("admin/services/simple_ca/manage/cert/downloadcert")%>");
+  xhr.open("POST", "<%=url("admin/services/simple_ca/cert_downloadcert")%>");
   xhr.responseType="blob";
   xhr.onload = function() {
     var objURL = URL.createObjectURL(xhr.response);
@@ -737,7 +737,7 @@ function revokeCert() {
   formData.append("revoke_reason", document.getElementById('revoke_reason').value);
 
   var xhr = new XMLHttpRequest();
-  xhr.open("POST", "<%=url("admin/services/simple_ca/manage/cert/revoke")%>");
+  xhr.open("POST", "<%=url("admin/services/simple_ca/cert_revoke")%>");
   xhr.onload = function() {
     L.hideModal();
 
@@ -830,7 +830,7 @@ function createNewPkeyAndCsr(ev) {
     E('p', { class: 'spinning' }, _('Creating new private key and csr. Please wait...'))]); 
 
   var xhr = new XMLHttpRequest();
-  xhr.open("POST", "<%=url("admin/services/simple_ca/manage/util/create_key_csr")%>");
+  xhr.open("POST", "<%=url("admin/services/simple_ca/util_create_key_csr")%>");
   xhr.responseType="blob";
   xhr.onload = function() {
     L.hideModal();

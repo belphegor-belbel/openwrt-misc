@@ -6,22 +6,21 @@ local json = require "luci.jsonc"
 
 function index()
   entry({"admin", "services", "simple_ca"}, cbi("simple_ca", {hideapplybtn=true, hideresetbtn=true, hidesavebtn=true}), _("Simple CA"))
-  entry({"admin", "services", "simple_ca", "manage"}, cbi("simple_ca/manage")).dependent = false
-  entry({"admin", "services", "simple_ca", "manage", "ca", "create"}, call("ca_create")).leaf = true
-  entry({"admin", "services", "simple_ca", "manage", "ca", "delete"}, call("ca_delete"))
-  entry({"admin", "services", "simple_ca", "manage", "ca", "list"}, call("ca_list"))
-  entry({"admin", "services", "simple_ca", "manage", "ca", "downloadcert"}, call("ca_downloadcert"))
-  entry({"admin", "services", "simple_ca", "manage", "ca", "backup"}, call("ca_backup"))
-  entry({"admin", "services", "simple_ca", "manage", "ca", "issuecrl"}, call("ca_issuecrl"))
-  entry({"admin", "services", "simple_ca", "manage", "ca", "changepassword"}, call("ca_changepassword"))
-  entry({"admin", "services", "simple_ca", "manage", "ca", "checkrestore"}, call("ca_checkrestore"))
-  entry({"admin", "services", "simple_ca", "manage", "ca", "restore"}, call("ca_restore"))
-  entry({"admin", "services", "simple_ca", "manage", "cert", "list"}, call("cert_list"))
-  entry({"admin", "services", "simple_ca", "manage", "cert", "check_csr"}, call("cert_check_csr"))
-  entry({"admin", "services", "simple_ca", "manage", "cert", "issue"}, call("cert_issue"))
-  entry({"admin", "services", "simple_ca", "manage", "cert", "downloadcert"}, call("cert_downloadcert"))
-  entry({"admin", "services", "simple_ca", "manage", "cert", "revoke"}, call("cert_revoke"))
-  entry({"admin", "services", "simple_ca", "manage", "util", "create_key_csr"}, call("create_key_csr"))
+  entry({"admin", "services", "simple_ca", "ca_create"}, call("ca_create")).leaf = true
+  entry({"admin", "services", "simple_ca", "ca_delete"}, call("ca_delete"))
+  entry({"admin", "services", "simple_ca", "ca_list"}, call("ca_list"))
+  entry({"admin", "services", "simple_ca", "ca_downloadcert"}, call("ca_downloadcert"))
+  entry({"admin", "services", "simple_ca", "ca_backup"}, call("ca_backup"))
+  entry({"admin", "services", "simple_ca", "ca_issuecrl"}, call("ca_issuecrl"))
+  entry({"admin", "services", "simple_ca", "ca_changepassword"}, call("ca_changepassword"))
+  entry({"admin", "services", "simple_ca", "ca_checkrestore"}, call("ca_checkrestore"))
+  entry({"admin", "services", "simple_ca", "ca_restore"}, call("ca_restore"))
+  entry({"admin", "services", "simple_ca", "cert_list"}, call("cert_list"))
+  entry({"admin", "services", "simple_ca", "cert_check_csr"}, call("cert_check_csr"))
+  entry({"admin", "services", "simple_ca", "cert_issue"}, call("cert_issue"))
+  entry({"admin", "services", "simple_ca", "cert_downloadcert"}, call("cert_downloadcert"))
+  entry({"admin", "services", "simple_ca", "cert_revoke"}, call("cert_revoke"))
+  entry({"admin", "services", "simple_ca", "util_create_key_csr"}, call("create_key_csr"))
 end
 
 local ca_rootdir = "/etc/simple_ca"
