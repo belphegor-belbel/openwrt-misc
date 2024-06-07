@@ -1,0 +1,302 @@
+#!/bin/sh
+
+# Requires: asterisk asterisk-pjsip asterisk-func-shell asterisk-res-rtp-asterisk asterisk-app-record asterisk-res-fax-spandsp asterisk-app-system asterisk-format-wav
+# Requires: asterisk-codec-ulaw or asterisk-codec-alaw
+# Requires: mailsend tiff-utils (tiff2pdf)
+
+SCRIPT_DIR=$(cd $(dirname $0); pwd)
+
+if [ $# -lt 1 ]; then
+cat << __EOF__ > /dev/stderr
+Usage: $0 [command] (options)
+
+[command]:
+  checkpackages:
+    Check whether required packages are installed or not.
+    Detailed information will be printed.
+  genastconf:
+    Update pjsip.conf and extensions.conf in /etc/asterisk
+    according to the /etc/config/answeringmachine.
+  checkcaller (list name) (from number) (show detail (optional)):
+    Check whether caller number of listed or not.
+    Return '1' to yes, '0' to no.
+    Show matched pattern(s) if "show detail" = 1.
+  checktime:
+    Check whether sleeping time or not.
+    Return '1' to yes, '0' to no."
+  sendmail (subject) (text) (attachment (optional)):
+    Send a mail according to the /etc/config/answeringmachine settings.
+  getaststatus:
+    Check asterisk registration status.
+__EOF__
+
+  exit 1;
+fi
+
+case $1 in
+  "checkpackages")
+    required="asterisk asterisk-pjsip asterisk-func-shell asterisk-res-rtp-asterisk asterisk-app-record asterisk-res-fax-spandsp asterisk-app-system asterisk-format-wav mailsend tiff-utils"
+
+    CODEC=`uci -q get answeringmachine.@answeringmachine[0].use_codec 2> /dev/null`
+    if [ "$CODEC" == "ulaw" ]; then
+      required="$required asterisk-codec-ulaw"
+    elif [ "$CODEC" == "alaw" ]; then
+      required="$required asterisk-codec-alaw"
+    else
+      required="$required _codec_is_not_selected"
+    fi
+
+    missing=0;
+    for r in $required; do
+      installed=0;
+      for i in `opkg list-installed`; do
+        if [ "$r" == "$i" ]; then
+          installed=1;
+          break;
+        fi
+      done
+
+      if [ $installed -lt 1 ]; then
+        if [ $missing -lt 1 ]; then
+          echo "These packages are requird but not installed:" > /dev/stderr;
+          missing=1;
+        fi
+
+        echo "  $r" > /dev/stderr
+      fi
+    done
+    ;;
+  "genastconf")
+    echo "Generating asterisk configs.." > /dev/stderr
+
+    SIPSERVER=`uci -q get answeringmachine.@answeringmachine[0].reg_sipserver`
+    USERNAME=`uci -q get answeringmachine.@answeringmachine[0].reg_username`
+    PASSWORD=`uci -q get answeringmachine.@answeringmachine[0].reg_password`
+    DELAY=`uci -q get answeringmachine.@answeringmachine[0].delay`
+    CODEC=`uci -q get answeringmachine.@answeringmachine[0].use_codec`
+
+    TZ=`date +%z`
+    TZREV=`echo UTC${TZ:0:3} | tr "+" "%" | tr "-" "+" | tr "%" "-"`
+
+    cat << __EOF__ > /etc/asterisk/pjsip.conf
+[transport-udp]
+type=transport
+protocol=udp
+bind=0.0.0.0:5060
+
+[gw]
+type=aor
+contact=sip:gw@$SIPSERVER
+
+[gw]
+type=auth
+auth_type=userpass
+username=$USERNAME
+password=$PASSWORD
+
+[gw]
+type=identify
+endpoint=gw
+match=$SIPSERVER
+
+[gw]
+type=registration
+transport=transport-udp
+outbound_auth=gw
+contact_user=$USERNAME
+server_uri=sip:$SIPSERVER
+client_uri=sip:$USERNAME@$SIPSERVER
+retry_interval=60
+; expiration=1800
+
+[gw]
+type=endpoint
+transport=transport-udp
+context=gw-incoming
+dtmf_mode=inband
+disallow=all
+allow=$CODEC
+direct_media=no
+send_pai=yes
+inband_progress=yes
+from_user=$USERNAME
+from_domain=$SIPSERVER
+outbound_auth=gw
+aors=gw
+fax_detect=yes
+__EOF__
+
+    cat << __EOF__ > /etc/asterisk/extensions.conf
+[gw-incoming]
+exten = $USERNAME,1,Noop()
+same = n,Ringing()
+same = n,Set(CALLERID_NUM=\${CALLERID(num)})
+same = n,Set(CALLEDID_NUM=\${PJSIP_PARSE_URI(\${PJSIP_HEADER(read,To)},user)})
+same = n,Noop(Incoming call from \${CALLERID_NUM} to \${CALLEDID_NUM})
+same = n,Set(result=\${SHELL($SCRIPT_DIR/answeringmachine checkcaller trusted \${CALLERID_NUM} | tr -d "\n")})
+same = n,GotoIf(\$["\${result}" = "1"]?wait)
+same = n,Set(result=\${SHELL($SCRIPT_DIR/answeringmachine checkcaller blocked \${CALLERID_NUM} | tr -d "\n")})
+same = n,GotoIf(\$["\${result}" = "1"]?answer)
+same = n,Set(result=\${SHELL($SCRIPT_DIR/answeringmachine checkcaller denied \${CALLERID_NUM} | tr -d "\n")})
+same = n,GotoIf(\$["\${result}" = "1"]?answer)
+same = n,Set(result=\${SHELL($SCRIPT_DIR/answeringmachine checktime | tr -d "\n")});
+same = n,GotoIf(\$["\${result}" = "1"]?answer)
+same = n(wait),Set(result=\${SHELL(uci -q get answeringmachine.@answeringmachine[0].delay || echo "60" | tr -d "\n")})
+same = n,Wait(\${result})
+same = n(answer),Answer()
+same = n,Set(playfile=\${SHELL(uci -q get answeringmachine.@answeringmachine[0].playfile || echo "DUMMY" | tr -d "\n")})
+same = n,Playback(\${playfile})
+same = n(noplay),Set(maxrecordtime=\${SHELL(uci -q get answeringmachine.@answeringmachine[0].maxrecordtime || echo "60" | tr -d "\n")})
+same = n,Set(TALKSTART=\${STRFTIME(\${EPOCH},${TZREV},%Y%m%d-%H%M%S)})
+same = n,Record(/tmp/answeringmachine-record-\${CALLERID_NUM}-\${TALKSTART}-%d.wav,0,\${maxrecordtime},xk)
+same = n(hangup),Hangup()
+
+exten = h,1,Noop(Procedure after hangup)
+same = n,GotoIf(\$[\${LEN(\${RECORDED_FILE})} < 1]?norecord)
+same = n,Set(TALKEND=\${STRFTIME(\${EPOCH},${TZREV},%Y%m%d-%H%M%S)})
+same = n,Set(result=\${SHELL($SCRIPT_DIR/answeringmachine checkcaller denied \${CALLERID_NUM} | tr -d "\n"))})
+same = n,GotoIf(\$["\${result}" = "1"]?denied)
+same = n,System($SCRIPT_DIR/answeringmachine sendmail "Voicemail from \${CALLERID_NUM}" "From: \${CALLERID_NUM}, To: \${CALLEDID_NUM}, Talk Start: \${TALKSTART}, Talk End: \${TALKEND}" \${RECORDED_FILE}.wav)
+same = n(denied),System(rm -f \${RECORDED_FILE}.wav)
+same = n(norecord),Noop(Procedure after hangup end)
+same = n,Hangup()
+
+exten = fax,1,Noop(Receiving FAX)
+same = n,Set(FAXSTART=\${STRFTIME(\${EPOCH},${TZREV},%Y%m%d-%H%M%S)})
+same = n,Set(FAXSPOOL=/tmp/recvfax-\${CALLERID_NUM}-\${FAXSTART}.tif)
+same = n,ReceiveFax(\${FAXSPOOL})
+same = n,System(/usr/bin/tiff2pdf -o \${FAXSPOOL}.pdf \${FAXSPOOL})
+same = n,System($SCRIPT_DIR/answeringmachine sendmail "Received FAX from \${CALLERID_NUM}" "From: \${CALLERID_NUM}, To: \${CALLEDID_NUM}, Fax Start: \${FAXSTART}" \${FAXSPOOL}.pdf && rm -f \${FAXSPOOL}.pdf \${FAXSPOOL})
+same = n,Hangup()
+
+[gw-faxsend]
+exten = _X.,1,noop(Sending FAX spool...)
+same = n,System(/bin/echo SENDING > \${FAXRESULTFILE})
+same = n,SendFAX(\${FAXFILE})
+same = n,Hangup()
+
+exten = h,1,Noop(Sending FAX complete)
+same = n,Noop(Status: \${FAXSTATUS})
+same = n,Noop(Error: \${FAXERROR})
+same = n,System(/bin/echo \${FAXSTATUS} > \${FAXRESULTFILE})
+same = n,Hangup()
+__EOF__
+
+    # set enable
+    uci set asterisk.general.enabled=1
+    uci commit
+
+    pidof asterisk > /dev/null 2>&1
+    if [ $? -gt 0 ]; then
+      # start asterisk because it is not running
+      /etc/init.d/asterisk start
+    else
+      # asterisk/configs/samples/cli_aliases.conf.sample
+      asterisk -x "module reload res_pjsip.so res_pjsip_authenticator_digest.so res_pjsip_endpoint_identifier_ip.so res_pjsip_mwi.so res_pjsip_notify.so res_pjsip_outbound_publish.so res_pjsip_publish_asterisk.so res_pjsip_outbound_registration.so"
+      asterisk -x "dialplan reload"
+    fi
+    ;;
+  "checkcaller")
+    if [ ! -f /etc/answeringmachine/numberlist_$2 ]; then
+      echo -n "Error: Number list $2 is not exist."
+      exit 0;
+    fi
+
+    linenum=1
+    matched=0
+    while read LINE
+    do
+      if [ "${LINE:0:1}" != "#" ]; then
+        if [[ "$3" =~ "^$LINE\$" ]]; then
+          if [ $# -ge 4 ]; then
+            echo "$2:$linenum ($LINE)"
+          else
+            echo "1";
+            matched=1;
+            exit 0;
+          fi
+        fi
+      fi
+
+      linenum=$((linenum+1));
+    done < /etc/answeringmachine/numberlist_$2
+
+    if [ $# -lt 4 ]; then
+      if [ $matched -lt 1 ]; then
+        echo "0";
+      fi
+    fi
+    ;;
+  "checktime")
+    echo "Checking time.." > /dev/stderr
+
+    TIMEFRAME=`uci -q get answeringmachine.@answeringmachine[0].sleeptime`
+    STARTTIME=`echo $TIMEFRAME | cut -d "-" -f 1 | tr -d ":"`
+    ENDTIME=`echo $TIMEFRAME | cut -d "-" -f 2 | tr -d ":"`
+    CURRTIME=`date +"%H%M"`
+
+    if [ "$STARTTIME" -gt "$ENDTIME" ]; then
+      # "22:00-06:00" style
+      if [ "$CURRTIME" -ge "$STARTTIME" ]; then
+        echo "1"
+      else
+        if [ "$CURRTIME" -lt "$ENDTIME" ]; then
+          echo "1"
+        else
+          echo "0"
+        fi
+      fi
+    else
+      # "09:00-18:00" style
+      if [ "$CURRTIME" -ge "$STARTTIME" -a "$CURRTIME" -lt "$ENDTIME" ]; then
+        echo "1"
+      else
+        echo "0"
+      fi
+    fi
+    ;;
+  "sendmail")
+    echo "Sending mail.." > /dev/stderr
+
+    MAILSERVER=`uci -q get answeringmachine.@answeringmachine[0].mail_smtpserver`
+    MAILPORT=`uci -q get answeringmachine.@answeringmachine[0].mail_smtpport`
+    MAILFROM=`uci -q get answeringmachine.@answeringmachine[0].mail_from`
+    MAILTO=`uci -q get answeringmachine.@answeringmachine[0].mail_to`
+    AUTH_USER=`uci -q get answeringmachine.@answeringmachine[0].mail_authuser`
+    AUTH_PASS=`uci -q get answeringmachine.@answeringmachine[0].mail_authpass`
+
+    if [ "`uci -q get answeringmachine.@answeringmachine[0].mail_smtpstarttls 2> /dev/null`" -eq "1" ]; then
+      STARTTLS="-starttls"
+    else
+      STARTTLS=""
+    fi
+
+    if [ ${#AUTH_USER} -gt 0 ]; then
+      AUTH="-auth -user $AUTH_USER -pass $AUTH_PASS"
+    else
+      AUTH=""
+    fi
+
+    if [ $# -gt 3 ]; then
+      ATTACHMENT="-attach $4,application/octet-stream,a"
+    else
+      ATTACHMENT=""
+    fi
+
+    mailsend $STARTTLS -cs utf-8 -mime-type text/plain \
+        -disposition inline -smtp "$MAILSERVER" -port "$MAILPORT" \
+        -f "$MAILFROM" -t "$MAILTO" +cc +bc $AUTH -sub "$2" -M "$3" \
+        $ATTACHMENT -v
+    exit $?
+    ;;
+  "getaststatus")
+    date
+    echo "<br/>"
+    echo "<br/>"
+    asterisk -x "pjsip show registrations" | tail +5 | sed "s/$/<br\/>/"
+    ;;
+  *)
+    echo "Error: unknown command."
+    exit 2;
+    ;;
+esac

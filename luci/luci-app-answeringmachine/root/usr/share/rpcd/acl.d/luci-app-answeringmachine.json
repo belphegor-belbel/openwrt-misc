@@ -1,0 +1,19 @@
+{
+	"luci-app-answeringmachine": {
+		"description": "Grant access to LuCI app answeringmachine",
+		"read": {
+			"file": {
+				"/usr/sbin/asterisk": [ "exec" ],
+				"/usr/sbin/answeringmachine": [ "exec" ],
+				"/etc/answeringmachine/*": [ "read" ]
+			},
+			"uci": [ "answeringmachine" ]
+		},
+		"write": {
+			"file": {
+				"/etc/answeringmachine/*": [ "write" ]
+			},
+			"uci": [ "answeringmachine" ]
+		}
+	}
+}

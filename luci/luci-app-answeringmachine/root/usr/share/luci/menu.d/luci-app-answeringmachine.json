@@ -1,0 +1,13 @@
+{
+	"admin/services/answeringmachine": {
+		"title": "Asterisk Answering Machine",
+		"action": {
+			"type": "view",
+			"path": "answeringmachine"
+		},
+		"depends": {
+			"acl": [ "luci-app-answeringmachine" ],
+			"uci": { "answeringmachine": true }
+		}
+	}
+}
