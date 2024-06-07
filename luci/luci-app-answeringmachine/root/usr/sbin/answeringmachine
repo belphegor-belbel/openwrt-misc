@@ -35,7 +35,7 @@ fi
 
 case $1 in
   "checkpackages")
-    required="asterisk asterisk-pjsip asterisk-func-shell asterisk-res-rtp-asterisk asterisk-app-record asterisk-res-fax-spandsp asterisk-app-system asterisk-format-wav mailsend tiff-utils"
+    required="asterisk asterisk-pjsip asterisk-func-shell asterisk-res-rtp-asterisk asterisk-app-record asterisk-res-fax-spandsp asterisk-app-system asterisk-format-wav asterisk-sounds asterik-format-pcm mailsend tiff-utils"
 
     CODEC=`uci -q get answeringmachine.@answeringmachine[0].use_codec 2> /dev/null`
     if [ "$CODEC" == "ulaw" ]; then
@@ -72,7 +72,6 @@ case $1 in
     SIPSERVER=`uci -q get answeringmachine.@answeringmachine[0].reg_sipserver`
     USERNAME=`uci -q get answeringmachine.@answeringmachine[0].reg_username`
     PASSWORD=`uci -q get answeringmachine.@answeringmachine[0].reg_password`
-    DELAY=`uci -q get answeringmachine.@answeringmachine[0].delay`
     CODEC=`uci -q get answeringmachine.@answeringmachine[0].use_codec`
 
     TZ=`date +%z`
@@ -141,12 +140,13 @@ same = n,Set(result=\${SHELL($SCRIPT_DIR/answeringmachine checkcaller denied \${
 same = n,GotoIf(\$["\${result}" = "1"]?answer)
 same = n,Set(result=\${SHELL($SCRIPT_DIR/answeringmachine checktime | tr -d "\n")});
 same = n,GotoIf(\$["\${result}" = "1"]?answer)
-same = n(wait),Set(result=\${SHELL(uci -q get answeringmachine.@answeringmachine[0].delay || echo "60" | tr -d "\n")})
+same = n(wait),Set(result=\${SHELL((uci -q get answeringmachine.@answeringmachine[0].delay || echo "60" ) | tr -d "\n")})
 same = n,Wait(\${result})
 same = n(answer),Answer()
-same = n,Set(playfile=\${SHELL(uci -q get answeringmachine.@answeringmachine[0].playfile || echo "DUMMY" | tr -d "\n")})
+same = n,Set(playfile=\${SHELL((uci -q get answeringmachine.@answeringmachine[0].playfile || echo "DUMMY" ) | tr -d "\n")})
+same = n,Wait(2)
 same = n,Playback(\${playfile})
-same = n(noplay),Set(maxrecordtime=\${SHELL(uci -q get answeringmachine.@answeringmachine[0].maxrecordtime || echo "60" | tr -d "\n")})
+same = n(noplay),Set(maxrecordtime=\${SHELL((uci -q get answeringmachine.@answeringmachine[0].maxrecordtime || echo "60" ) | tr -d "\n")})
 same = n,Set(TALKSTART=\${STRFTIME(\${EPOCH},${TZREV},%Y%m%d-%H%M%S)})
 same = n,Record(/tmp/answeringmachine-record-\${CALLERID_NUM}-\${TALKSTART}-%d.wav,0,\${maxrecordtime},xk)
 same = n(hangup),Hangup()

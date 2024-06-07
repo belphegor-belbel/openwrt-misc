@@ -173,7 +173,7 @@ return view.extend({
         o.validate = function(i, v) {
           return (new RegExp('^[0-9]{1,2}:[0-9][0-9]-[0-9]{1,2}:[0-9][0-9]$')).test(v);
         };
-        s.taboption('general', form.Value, 'playfile', _('Play File'), _('This file will be played before starting recording. Do not add extensions such as ".wav", ".ul", etc.'));
+        s.taboption('general', form.Value, 'playfile', _('Play File'), _('This file will be played before starting recording. Do not add extensions such as ".wav", ".ulaw", etc.'));
         s.taboption('general', form.Value, 'maxrecordtime', _('Maximum Recording Time [sec]'), _('Maximum recording time.'));
 
         s.tab('numberlist_trusted', _('Number List - Trusted'));
