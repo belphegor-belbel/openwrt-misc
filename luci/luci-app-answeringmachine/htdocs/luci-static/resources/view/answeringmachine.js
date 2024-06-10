@@ -160,26 +160,26 @@ return view.extend({
         s.taboption('notification', form.Value, 'mail_smtpserver', _('Notification SMTP server'), _('Specify the mail (SMTP) server when sending notifications.'));
         s.taboption('notification', form.Value, 'mail_smtpport', _('Notification SMTP server port'), _('Specify the mail (SMTP) server port (usualy 25 or 587) when sending notifications.'));
         s.taboption('notification', form.Value, 'mail_from', _('Notification From Address'), _('Specify the source (From) address when sending notifications.'));
-        s.taboption('notification', form.Value, 'mail_to', _('Notification To Address'), _('Specify the destination (To) address when sending notifications.'));
-        s.taboption('notification', form.Value, 'mail_authuser', _('SMTP Authentication User'), _('Specify the SMTP authentication user name when sending notifications.'));
-        s.taboption('notification', form.Value, 'mail_authpass', _('SMTP Authentication Password'), _('Specify the SMTP authentication password when sending notifications.')).password = true;
+        s.taboption('notification', form.Value, 'mail_to', _('Notification To Address'), _('Specify the destination (To) address when sending notifications. Multiple addresses can be specified with comma-separated.'));
+        s.taboption('notification', form.Value, 'mail_authuser', _('SMTP Authentication User'), _('Specify the SMTP authentication user name when sending notifications (optional).'));
+        s.taboption('notification', form.Value, 'mail_authpass', _('SMTP Authentication Password'), _('Specify the SMTP authentication password when sending notifications (optional).')).password = true;
         s.taboption('notification', CBItestMail, '_testmail', _('Send test'), _('Push this button after saving configs.'));
 
         s.tab('general', _('General Settings'));
 
-        s.taboption('general', form.Value, 'delay', _('Answer Delay [sec]'), _('Answer after the specified time has elapsed.'));
+        s.taboption('general', form.Value, 'delay', _('Answer Delay [sec]'), _('Answer after the specified time has elapsed (default=60).'));
         o = s.taboption('general', form.Value, 'sleeptime', _('Sleeping Time (HH:MM-HH:MM)'), _('Answer immediately during these hours.'));
         o.placeholder = 'XX:XX-XX:XX';
         o.validate = function(i, v) {
           return (new RegExp('^[0-9]{1,2}:[0-9][0-9]-[0-9]{1,2}:[0-9][0-9]$')).test(v);
         };
         s.taboption('general', form.Value, 'playfile', _('Play File'), _('This file will be played before starting recording. Do not add extensions such as ".wav", ".ulaw", etc.'));
-        s.taboption('general', form.Value, 'maxrecordtime', _('Maximum Recording Time [sec]'), _('Maximum recording time.'));
+        s.taboption('general', form.Value, 'maxrecordtime', _('Maximum Recording Time [sec]'), _('Maximum recording time (default=60).'));
 
         s.tab('numberlist_trusted', _('Number List - Trusted'));
 
         o = s.taboption('numberlist_trusted', form.TextValue, '_numberlist_trusted', null,
-          _('This is the list of trusted (does not go to answering machine regardless of sleeping time) caller numbers. Write one number per line. You can also use regular expressions.'));
+          _('This is the list of trusted (does not go to answering machine regardless of sleeping time) caller numbers. Write one number per line. You can also use regular expression.'));
         o.rows = 20;
         o.cfgvalue = function(section_id) {
             return fs.trimmed('/etc/answeringmachine/numberlist_trusted');
@@ -191,7 +191,7 @@ return view.extend({
         s.tab('numberlist_blocked', _('Number List - Blocked'));
 
         o = s.taboption('numberlist_blocked', form.TextValue, '_numberlist_blocked', null,
-          _('This is the list of blocked (always go to answering machine immediately) caller numbers. Write one number per line. You can also use regular expressions.'));
+          _('This is the list of blocked (always go to answering machine immediately) caller numbers. Write one number per line. You can also use regular expression.'));
         o.rows = 20;
         o.cfgvalue = function(section_id) {
             return fs.trimmed('/etc/answeringmachine/numberlist_blocked');
@@ -203,7 +203,7 @@ return view.extend({
         s.tab('numberlist_denied', _('Number List - Denied'));
 
         o = s.taboption('numberlist_denied', form.TextValue, '_numberlist_denied', null,
-          _('This is the list of denied (always go to answering machine immediately, but recorded file will not be notified) caller numbers. Write one number per line. You can also use regular expressions.'));
+          _('This is the list of denied (always go to answering machine immediately, but recorded file will not be notified) caller numbers. Write one number per line. You can also use regular expression.'));
         o.rows = 20;
         o.cfgvalue = function(section_id) {
             return fs.trimmed('/etc/answeringmachine/numberlist_denied');

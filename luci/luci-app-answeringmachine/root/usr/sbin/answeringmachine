@@ -58,7 +58,7 @@ case $1 in
 
       if [ $installed -lt 1 ]; then
         if [ $missing -lt 1 ]; then
-          echo "These packages are requird but not installed:" > /dev/stderr;
+          echo "These packages are required but not installed:" > /dev/stderr;
           missing=1;
         fi
 
@@ -69,6 +69,7 @@ case $1 in
   "genastconf")
     echo "Generating asterisk configs.." > /dev/stderr
 
+    REGENABLED=`uci -q get answeringmachine.@answeringmachine[0].reg_enabled`
     SIPSERVER=`uci -q get answeringmachine.@answeringmachine[0].reg_sipserver`
     USERNAME=`uci -q get answeringmachine.@answeringmachine[0].reg_username`
     PASSWORD=`uci -q get answeringmachine.@answeringmachine[0].reg_password`
@@ -97,6 +98,10 @@ password=$PASSWORD
 type=identify
 endpoint=gw
 match=$SIPSERVER
+__EOF__
+
+    if [ $REGENABLED -gt 0 ]; then
+      cat << __EOF__ >> /etc/asterisk/pjsip.conf
 
 [gw]
 type=registration
@@ -107,6 +112,10 @@ server_uri=sip:$SIPSERVER
 client_uri=sip:$USERNAME@$SIPSERVER
 retry_interval=60
 ; expiration=1800
+__EOF__
+    fi
+
+    cat << __EOF__ >> /etc/asterisk/pjsip.conf
 
 [gw]
 type=endpoint
@@ -182,6 +191,9 @@ same = n,System(/bin/echo \${FAXSTATUS} > \${FAXRESULTFILE})
 same = n,Hangup()
 __EOF__
 
+    # set permissions
+    chmod 644 /etc/asterisk/pjsip.conf /etc/asterisk/extensions.conf
+
     # set enable
     uci set asterisk.general.enabled=1
     uci commit
@@ -256,14 +268,21 @@ __EOF__
     fi
     ;;
   "sendmail")
-    echo "Sending mail.." > /dev/stderr
-
     MAILSERVER=`uci -q get answeringmachine.@answeringmachine[0].mail_smtpserver`
     MAILPORT=`uci -q get answeringmachine.@answeringmachine[0].mail_smtpport`
     MAILFROM=`uci -q get answeringmachine.@answeringmachine[0].mail_from`
     MAILTO=`uci -q get answeringmachine.@answeringmachine[0].mail_to`
     AUTH_USER=`uci -q get answeringmachine.@answeringmachine[0].mail_authuser`
     AUTH_PASS=`uci -q get answeringmachine.@answeringmachine[0].mail_authpass`
+
+    if [ ${#MAILSERVER} -lt 1 ]; then
+      echo "Mail server is not configured."; > /dev/stderr
+      exit 1;
+    fi
+
+    if [ ${#MAILPORT} -lt 1 ]; then
+      MAILPORT=25
+    fi
 
     if [ "`uci -q get answeringmachine.@answeringmachine[0].mail_smtpstarttls 2> /dev/null`" -eq "1" ]; then
       STARTTLS="-starttls"
@@ -285,6 +304,7 @@ __EOF__
 
     mailsend $STARTTLS -cs utf-8 -mime-type text/plain \
         -disposition inline -smtp "$MAILSERVER" -port "$MAILPORT" \
+        -H "Message-ID: <`date +'%Y%m%d%H%M%S'`.`dd if=/dev/urandom bs=8 count=8 2> /dev/null | tr -dc "a-zA-Z0-9"`@`uname -n`>" \
         -f "$MAILFROM" -t "$MAILTO" +cc +bc $AUTH -sub "$2" -M "$3" \
         $ATTACHMENT -v
     exit $?

@@ -1,1 +1,11 @@
 # Trusted numbers list
+#
+# This is a trusted numbers list.
+# If the caller ID is in this list, answering machine does not answer even during sleeping time (i.e. your phone will always ring).
+#
+# * You can write one caller ID per one line.
+# * You can write any comment in this file by specifying '#' at the beginning of the line.
+# * You can also use extended regular expression (ERE) to specify many numbers at once.
+# * However, '*' (zero or more times match) should be specified as '\*', '+' (one or more times match) should be '\+'.
+# * Any other meta characters can be written as-is.
+#
