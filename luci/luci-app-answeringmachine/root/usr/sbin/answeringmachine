@@ -35,7 +35,7 @@ fi
 
 case $1 in
   "checkpackages")
-    required="asterisk asterisk-pjsip asterisk-func-shell asterisk-res-rtp-asterisk asterisk-app-record asterisk-res-fax-spandsp asterisk-app-system asterisk-format-wav asterisk-sounds asterisk-format-pcm mailsend tiff-utils"
+    required="asterisk asterisk-pjsip asterisk-func-shell asterisk-res-rtp-asterisk asterisk-app-record asterisk-res-fax-spandsp asterisk-app-system asterisk-format-wav asterisk-sounds asterisk-format-pcm mailsend tiff-utils asterisk-format-gsm"
 
     CODEC=`uci -q get answeringmachine.@answeringmachine[0].use_codec 2> /dev/null`
     if [ "$CODEC" == "ulaw" ]; then
