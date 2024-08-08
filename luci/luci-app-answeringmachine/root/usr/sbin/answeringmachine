@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# Requires: asterisk asterisk-pjsip asterisk-func-shell asterisk-res-rtp-asterisk asterisk-app-record asterisk-res-fax-spandsp asterisk-app-system asterisk-format-wav
+# Requires: asterisk asterisk-pjsip asterisk-func-shell asterisk-res-rtp-asterisk asterisk-app-record asterisk-res-fax-spandsp asterisk-app-system asterisk-format-wav asterisk-codec-gsm
 # Requires: asterisk-codec-ulaw or asterisk-codec-alaw
 # Requires: mailsend tiff-utils (tiff2pdf)
 
@@ -35,7 +35,7 @@ fi
 
 case $1 in
   "checkpackages")
-    required="asterisk asterisk-pjsip asterisk-func-shell asterisk-res-rtp-asterisk asterisk-app-record asterisk-res-fax-spandsp asterisk-app-system asterisk-format-wav asterisk-sounds asterisk-format-pcm mailsend tiff-utils asterisk-format-gsm"
+    required="asterisk asterisk-pjsip asterisk-func-shell asterisk-res-rtp-asterisk asterisk-app-record asterisk-res-fax-spandsp asterisk-app-system asterisk-format-wav asterisk-sounds asterisk-format-pcm mailsend tiff-utils asterisk-format-gsm asterisk-codec-gsm"
 
     CODEC=`uci -q get answeringmachine.@answeringmachine[0].use_codec 2> /dev/null`
     if [ "$CODEC" == "ulaw" ]; then
@@ -163,7 +163,7 @@ same = n(hangup),Hangup()
 exten = h,1,Noop(Procedure after hangup)
 same = n,GotoIf(\$[\${LEN(\${RECORDED_FILE})} < 1]?norecord)
 same = n,Set(TALKEND=\${STRFTIME(\${EPOCH},${TZREV},%Y%m%d-%H%M%S)})
-same = n,Set(result=\${SHELL($SCRIPT_DIR/answeringmachine checkcaller denied \${CALLERID_NUM} | tr -d "\n"))})
+same = n,Set(result=\${SHELL($SCRIPT_DIR/answeringmachine checkcaller denied \${CALLERID_NUM} | tr -d "\n")})
 same = n,GotoIf(\$["\${result}" = "1"]?denied)
 same = n,System($SCRIPT_DIR/answeringmachine sendmail "Voicemail from \${CALLERID_NUM}" "From: \${CALLERID_NUM}, To: \${CALLEDID_NUM}, Talk Start: \${TALKSTART}, Talk End: \${TALKEND}" \${RECORDED_FILE}.wav)
 same = n(denied),System(rm -f \${RECORDED_FILE}.wav)
