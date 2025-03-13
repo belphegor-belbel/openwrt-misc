@@ -17,7 +17,6 @@ local mv = "/bin/mv"
 local mkdir = "/bin/mkdir"
 local chown = "/bin/chown"
 local chmod = "/bin/chmod"
-local pdf2dsc = "/usr/bin/pdf2dsc"
 local tiffinfo = "/usr/bin/tiffinfo"
 local basename = "/usr/bin/basename"
 local date = "/bin/date"
@@ -163,7 +162,7 @@ local addspool = coroutine.create(
         print(json.stringify(e))
         return
       end
-    elseif (os.execute(pdf2dsc .. " " .. arg[3] .. " /dev/null > /dev/null 2>&1") == 0) then
+    else
       f = io.popen(ghostscript .. " -r204x204 -q -dNOPAUSE -dBATCH -dQUIET -dFIXEDMEDIA -o " .. spoolfile .. ".tif -sDEVICE=tiffg4 -sPAPERSIZE=a4 " .. arg[3] .. " 2>&1")
       if (f == nil) then
         os.remove(spoolfile .. ".spl")
@@ -190,12 +189,6 @@ local addspool = coroutine.create(
         print(json.stringify(e))
         return
       end
-    else
-      os.remove(spoolfile .. ".spl")
-
-      e.error = "Error: Unknown file type."
-      print(json.stringify(e))
-      return
     end
 
     f = io.popen(tiffinfo .. " " .. spoolfile .. ".tif", "r")
