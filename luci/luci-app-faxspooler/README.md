@@ -66,7 +66,7 @@ Where:
 It also needs to be added to /etc/asterisk/extensions.conf:
 
 ```
-[faxsend]
+[gw-faxsend]
 exten = _X.,1,noop(Sending FAX spool...)
 same = n,System(/bin/echo SENDING > ${FAXRESULTFILE})
 same = n,SendFAX(${FAXFILE})

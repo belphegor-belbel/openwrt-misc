@@ -17,7 +17,7 @@ define Package/luci-app-faxspooler
 	CATEGORY:=LuCI
 	SUBMENU:=3. Applications
 	TITLE:=FAX spooler module
-	DEPENDS:=+luci-base +ghostscript +tiff-utils +luci-compat
+	DEPENDS:=+luci-base +ghostscript +tiff-utils +luci-compat +asterisk +asterisk-app-system +asterisk-chan-rtp +asterisk-pbx-spool +asterisk-pjsip +asterisk-res-fax +asterisk-res-fax-spandsp +asterisk-res-pjproject +asterisk-res-rtp-asterisk
 endef
 
 define Package/luci-app-faxspooler/description
