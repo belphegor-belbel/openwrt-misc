@@ -101,7 +101,7 @@ local sendfaxspool = coroutine.create(
               astspool:write("Set: FAXRESULTFILE=" .. line .. ".result\n")
               astspool:close()
 
-              if (os.execute(chown .. " " .. astspoolfilename) ~= 0) then
+              if (os.execute(chown .. " asterisk:asterisk " .. astspoolfilename) ~= 0) then
                 logger(2, "Unable to chown() on spool file [" .. astspoolfilename .. "]")
               end
 
@@ -368,13 +368,19 @@ if (os.execute(chown .. " asterisk:asterisk " .. spooldir) ~= 0) then
   print("Error: Unable to set owner of directory [" .. spooldir .. "].")
   os.exit(1)
 end
-if (os.execute(chmod .. " 0664 " .. spooldir) ~= 0) then
+if (os.execute(chmod .. " 0775 " .. spooldir) ~= 0) then
   print("Error: Unable to set permission of directory [" .. spooldir .. "].")
   os.exit(1)
 end
 if (os.execute(mkdir .. " -p " .. astoutgoingdir) ~= 0) then
   print("Error: Unable to create asterisk's outgoing directory [" .. astoutgoingdir .. "].")
   os.exit(1)
+end
+if (os.execute(chown .. " asterisk:asterisk " .. astoutgoingdir) ~= 0) then
+  print("Error: Unable to set owner of directory [" .. astoutgoingdir .. "].")
+end
+if (os.execute(chmod .. " 0775" .. astoutgoingdir) ~= 0) then
+  print("Error: Unable to set permission of directory [" .. astoutgoingdir .. "].")
 end
 
 if (#arg < 1) then
