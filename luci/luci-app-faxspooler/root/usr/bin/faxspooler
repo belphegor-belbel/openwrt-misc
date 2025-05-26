@@ -379,7 +379,7 @@ end
 if (os.execute(chown .. " asterisk:asterisk " .. astoutgoingdir) ~= 0) then
   print("Error: Unable to set owner of directory [" .. astoutgoingdir .. "].")
 end
-if (os.execute(chmod .. " 0775" .. astoutgoingdir) ~= 0) then
+if (os.execute(chmod .. " 0775 " .. astoutgoingdir) ~= 0) then
   print("Error: Unable to set permission of directory [" .. astoutgoingdir .. "].")
 end
 
