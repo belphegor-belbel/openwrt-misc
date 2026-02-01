@@ -446,7 +446,15 @@ function changeCApassword() {
         if (message.error.length > 0) {
           alert(_("Changing CA password failed (" + message.error + ")!"));
           return;
+       } else {
+          alert(_("Changing CA password failed!"));
        }
+      } else {
+        if (message.ok) {
+          alert(_("Changing CA password succeeded."));
+        } else {
+          alert(_("Changing CA password may be succeeded!?"));
+        }
       }
     }
 

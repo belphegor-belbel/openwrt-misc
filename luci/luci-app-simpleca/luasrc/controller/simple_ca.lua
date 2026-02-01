@@ -178,14 +178,14 @@ function genPkeyAndCsr(destKeyFile, destCsrFile)
   end
   if (pkeypass:len() > 0) then
     if (os.execute(OPENSSL .. " genpkey " .. opensslparams .. " -aes256 " ..
-      "-pass file:" .. passfile .. " -out " .. destKeyFile) ~= 0) then
+      "-pass file:" .. passfile .. " -out " .. destKeyFile .. " > /dev/null") ~= 0) then
       os.remove(passfile)
       luci.http.write_json({ error="Unable to generate private key (with password)" })
       return 1
     end
   else
     if (os.execute(OPENSSL .. " genpkey " .. opensslparams ..
-      " -out " .. destKeyFile) ~= 0) then
+      " -out " .. destKeyFile .. " > /dev/null") ~= 0) then
       os.remove(passfile)
       luci.http.write_json({ error="Unable to generate private key (without password)" })
       return 1
@@ -217,14 +217,14 @@ function genPkeyAndCsr(destKeyFile, destCsrFile)
   end
   if (pkeypass:len() > 0) then
     if (os.execute(OPENSSL .. " req -new -batch -subj \"" .. subj .. "\" -key " ..
-      destKeyFile .. " -passin file:" .. passfile .. " -out " .. destCsrFile) ~= 0) then
+      destKeyFile .. " -passin file:" .. passfile .. " -out " .. destCsrFile .. " > /dev/null") ~= 0) then
       os.remove(passfile)
       luci.http.write_json({ error="Unable to generate certificate request (with password)" })
       return 1
     end
   else
     if (os.execute(OPENSSL .. " req -new -batch -subj \"" .. subj .. "\" -key " ..
-      destKeyFile .. " -out " .. destCsrFile) ~= 0) then
+      destKeyFile .. " -out " .. destCsrFile .. " > /dev/null") ~= 0) then
       os.remove(passfile)
       luci.http.write_json({ error="Unable to generate certificate request (without password)" })
       return 1
@@ -298,7 +298,7 @@ function ca_create()
     "-passin file:" .. passfile .. " -out " .. ca_rootdir .. "/" .. ca_name ..
     "/cacert.pem -days " .. ca_valid_days .. " -batch -keyfile " ..
     ca_rootdir .. "/" .. ca_name .. "/private/cakey.pem -selfsign " ..
-    "-extensions v3_ca -in " .. ca_rootdir .. "/" .. ca_name .. "/careq.pem")
+    "-extensions v3_ca -in " .. ca_rootdir .. "/" .. ca_name .. "/careq.pem > /dev/null")
     ~= 0) then
     os.remove(passfile)
     os.remove(sslCnf)
@@ -442,7 +442,7 @@ function ca_issuecrl()
   local tmpCrl = os.tmpname()
   local sslCnf = create_temp_opensslcnf(ca_rootdir .. "/" .. ca_name .. "/")
   if (os.execute(OPENSSL .. " ca -config " .. sslCnf .. " -passin file:" ..
-    passfile .. " -gencrl -crldays " .. crl_valid_days .. " -out " .. tmpCrl)
+    passfile .. " -gencrl -crldays " .. crl_valid_days .. " -out " .. tmpCrl .. " > /dev/null")
     ~= 0) then
     os.remove(tmpCrl)
     os.remove(passfile)
@@ -503,12 +503,12 @@ function ca_changepassword()
   if (os.execute(OPENSSL .. " rsa -in " .. ca_rootdir .. "/" .. ca_name ..
     "/private/cakey.pem -passin file:" .. passfile_old .. " -aes256 -out " ..
     ca_rootdir .. "/" .. ca_name .. "/private/cakey.pem.new -passout file:" ..
-    passfile_new) ~= 0) then
+    passfile_new .. " > /dev/null") ~= 0) then
     -- retry with EC
     if (os.execute(OPENSSL .. " ec -in " .. ca_rootdir .. "/" .. ca_name ..
       "/private/cakey.pem -passin file:" .. passfile_old .. " -aes256 -out " ..
       ca_rootdir .. "/" .. ca_name .. "/private/cakey.pem.new -passout file:" ..
-      passfile_new) ~= 0) then
+      passfile_new .. " > /dev/null") ~= 0) then
       os.remove(passfile_old)
       os.remove(passfile_new)
       luci.http.prepare_content("application/json")
@@ -739,7 +739,7 @@ function cert_check_csr()
   luci.http.status(200, "OK")
   luci.http.prepare_content("application/json")
 
-  if (os.execute(OPENSSL .. " req -in " .. tmpCsr .. " -noout -verify")
+  if (os.execute(OPENSSL .. " req -in " .. tmpCsr .. " -noout -verify > /dev/null")
     ~= 0) then
     os.remove(tmpCsr)
     luci.http.write_json({ error="Bad CSR format" })
@@ -771,8 +771,14 @@ function cert_issue()
   local upload = luci.http.formvalue("csr_file")
 
   local certext
-  local cert_client = string.lower(luci.http.formvalue("cert_client"))
-  local cert_server = string.lower(luci.http.formvalue("cert_server"))
+  local cert_client = ""
+  if (luci.http.formvalue("cert_client") ~= nil) then
+    cert_client = string.lower(luci.http.formvalue("cert_client"))
+  end
+  local cert_server = ""
+  if (luci.http.formvalue("cert_server") ~= nil) then
+    cert_server = string.lower(luci.http.formvalue("cert_server"))
+  end
   if (cert_client == "true") then
     if (cert_server == "true") then
       certext = "both_cert"
@@ -825,18 +831,24 @@ function cert_issue()
 
   -- Issue certificate
   local tmpCrt = os.tmpname()
+  local tmpError = os.tmpname()
   local sslCnf = create_temp_opensslcnf(ca_rootdir .. "/" .. ca_name .. "/")
   if (os.execute(OPENSSL .. " ca -config " .. sslCnf .. " -passin file:" ..
     passfile .. " -policy policy_anything -in " .. tmpCsr .. " -out " ..
     tmpCrt .. " -days " .. cert_valid_days .. " -batch -keyfile " ..
-    ca_rootdir .. "/" .. ca_name .. "/private/cakey.pem -extensions " .. certext)
+    ca_rootdir .. "/" .. ca_name .. "/private/cakey.pem -extensions " .. certext .. " > " .. tmpError .. " 2>&1")
     ~= 0) then
+    local f = io.open(tmpError, "r")
+    local errorText = f:read("*a")
+    f:close()
+
     os.remove(tmpCrt)
     os.remove(tmpCsr)
     os.remove(passfile)
     os.remove(sslCnf)
+    os.remove(tmpError)
     luci.http.prepare_content("application/json")
-    luci.http.write_json({ error="Unable to issue certificate" })
+    luci.http.write_json({ error="Unable to issue certificate:" .. errorText })
     return
   end
 
@@ -958,7 +970,7 @@ function cert_revoke()
   local sslCnf = create_temp_opensslcnf(ca_rootdir .. "/" .. ca_name .. "/")
   if (os.execute(OPENSSL .. " ca -config " .. sslCnf .. " -passin file:" ..
     passfile .. " -revoke " .. ca_rootdir .. "/" .. ca_name .. "/newcerts/" ..
-    cert_serial .. ".pem -crl_reason " .. revoke_reason) ~= 0) then
+    cert_serial .. ".pem -crl_reason " .. revoke_reason .. " > /dev/null") ~= 0) then
     os.remove(passfile)
     os.remove(sslCnf)
 
