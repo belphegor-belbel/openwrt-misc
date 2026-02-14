@@ -1,0 +1,12 @@
+{
+	"admin/services/simpleca": {
+		"title": "Simple CA",
+		"action": {
+			"type": "view",
+			"path": "simpleca"
+		},
+		"depends": {
+			"acl": [ "luci-app-simpleca" ]
+		}
+	}
+}

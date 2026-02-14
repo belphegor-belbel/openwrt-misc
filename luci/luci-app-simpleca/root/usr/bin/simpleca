@@ -1,0 +1,1362 @@
+#!/usr/bin/lua
+
+-- Requires: lua < 5.2, lua-cjson, openssl-util, coreutils-base64, busybox ("date" command must be provided from busybox, not coreutils)
+-- (return value of "os.exit()" and "os.execute()" changed when lua >= 5.2)
+-- (parameter of "io:read()" should be "a" instead of "*a" when lua >= 5.3)
+local cjson = require "cjson"
+
+local ca_rootdir = "/etc/simple_ca"
+
+local MKDIR = "/bin/mkdir"
+local TOUCH = "/bin/touch"
+local SED = "/bin/sed"
+local TAR = "/bin/tar"
+local RM = "/bin/rm"
+local CP = "/bin/cp"
+local MV = "/bin/mv"
+local CAT = "/bin/cat"
+local FIND = "/usr/bin/find"
+local TR = "/usr/bin/tr"
+local BASENAME = "/usr/bin/basename"
+local OPENSSL = "/usr/bin/openssl"
+local BASE64 = "/bin/base64 -w 0"
+
+--
+
+local algorithms = {}
+algorithms["rsa2048"] =                    { order=0, description="RSA 2048 bits", opensslparams="-algorithm rsa -pkeyopt rsa_keygen_bits:2048" }
+algorithms["rsa4096"] =                    { order=1, description="RSA 4096 bits", opensslparams="-algorithm rsa -pkeyopt rsa_keygen_bits:4096" }
+algorithms["rsa8192"] =                    { order=2, description="RSA 8192 bits", opensslparams="-algorithm rsa -pkeyopt rsa_keygen_bits:8192" }
+algorithms["rsa16384"] =                   { order=3, description="RSA 16384 bits", opensslparams="-algorithm rsa -pkeyopt rsa_keygen_bits:16384" }
+algorithms["ec_secp521r1"] =               { order=4, description="EC secp521r1", opensslparams="-algorithm EC -pkeyopt ec_paramgen_curve:secp521r1 -pkeyopt ec_param_enc:named_curve" }
+algorithms["ec_prime256v1"] =              { order=5, description="EC prime256v1", opensslparams="-algorithm EC -pkeyopt ec_paramgen_curve:prime256v1 -pkeyopt ec_param_enc:named_curve" }
+algorithms["ec_wap-wsg-idm-ecid-wtls12"] = { order=6, description="EC wap-wsg-idm-ecid-wtls12", opensslparams="-algorithm EC -pkeyopt ec_paramgen_curve:wap-wsg-idm-ecid-wtls12 -pkeyopt ec_param_enc:named_curve" }
+algorithms["ec_brainpoolP512t1"] =         { order=7, description="EC brainpoolP512t1", opensslparams="-algorithm EC -pkeyopt ec_paramgen_curve:brainpoolP512t1 -pkeyopt ec_param_enc:named_curve" }
+algorithms["ec_sm2"] =                     { order=8, description="EC SM2", opensslparams="-algorithm EC -pkeyopt ec_paramgen_curve:SM2 -pkeyopt ec_param_enc:named_curve" }
+algorithms["ed25519"] =                    { order=9, description="ED25519", opensslparams="-algorithm ED25519" }
+
+local revocationreasons = {}
+revocationreasons["unspecified"] =          { order=0, description="Not specified." }
+revocationreasons["keyCompromise"] =        { order=1, description="Private key or other validated entity was compromised." }
+revocationreasons["CACompromise"] =         { order=2, description="Private key or other validated CA was compromised." }
+revocationreasons["affiliationChanged"] =   { order=3, description="Subject's name or other validated information was compromised." }
+revocationreasons["superseded"] =           { order=4, description="Certificate was superseded without any compromise." }
+revocationreasons["cessationOfOperation"] = { order=5, description="Certificate is no longer needed without any compromise." }
+revocationreasons["certificateHold"] =      { order=6, description="Certificate is temporarily suspended." }
+revocationreasons["removeFromCRL"] =        { order=7, description="Certificate was revoked on a base CRL." }
+
+-- Other functions
+function checkIllegalChars(src)
+  return string.find(src, "[^A-Za-z0-9@%-%_%.%, ]")
+end
+
+function checkCertificateParameters(params)
+  if params["country"] ~= nil then
+    if checkIllegalChars(params["country"]) ~= nil then
+      return({ error="Country code contains illegal character." })
+    end
+  end
+  if params["state"] ~= nil then
+    if checkIllegalChars(params["state"]) ~= nil then
+      return({ error="State contains illegal character." })
+    end
+  end
+  if params["localityname"] ~= nil then
+    if checkIllegalChars(params["localityname"]) ~= nil then
+      return({ error="Locality name contains illegal character." })
+    end
+  end
+  if params["orgname"] ~= nil then
+    if checkIllegalChars(params["orgname"]) ~= nil then
+      return({ error="Organization name contains illegal character." })
+    end
+  end
+  if params["orgunitname"] ~= nil then
+    if checkIllegalChars(params["orgunitname"]) ~= nil then
+      return({ error="Organizational unit name contains illegal character." })
+    end
+  end
+  if params["commonname"] ~= nil then
+    if checkIllegalChars(params["commonname"]) ~= nil then
+      return({ error="Common name contains illegal character." })
+    end
+  end
+  if params["email"] ~= nil then
+    if checkIllegalChars(params["email"]) ~= nil then
+      return({ error="Email address contains illegal character." })
+    end
+  end
+
+  return nil
+end
+
+function genPkeyAndCsr(params, destKeyFile, destCsrFile)
+  local result = checkCertificateParameters(params)
+  if result ~= nil then
+    return(result)
+  end
+
+  -- create password file
+  local passfile = os.tmpname()
+  if params["passwd"] ~= nil then
+    local f = io.open(passfile, "w")
+    if (f == nil) then
+      os.remove(passfile)
+      return ({ error="Failed to create password file." })
+    end
+
+    f:write(params["passwd"])
+    f:close()
+  end
+
+  -- Generate private key
+  local opensslparams
+  if (params["algorithm"] ~= nil) then
+    if (algorithms[string.lower(params["algorithm"])] ~= nil) then
+      opensslparams = algorithms[string.lower(params["algorithm"])]["opensslparams"]
+    end
+  end
+
+  if (opensslparams == nil) then
+    os.remove(passfile)
+    if (params["algorithm"] ~= nil) then
+      return({ error="Unknown private key parameter [" .. params["algorithm"] .. "]" })
+    else
+      return({ error="Private key parameter was not specified." })
+    end
+  end
+
+  local logfile = os.tmpname()
+  if (params["passwd"] ~= nil) then
+    if (os.execute(OPENSSL .. " genpkey " .. opensslparams .. " -aes256 " ..
+      "-pass file:" .. passfile .. " -out " .. destKeyFile .. " > " .. logfile .. " 2>&1") ~= 0) then
+      os.remove(passfile)
+
+      local f = io.open(logfile, "r")
+      local log = f:read("*a")
+      f:close()
+      os.remove(logfile)
+
+      return({ error="Failed to generate private key (with password)", output=log })
+    end
+  else
+    if (os.execute(OPENSSL .. " genpkey " .. opensslparams ..
+      " -out " .. destKeyFile .. " > " .. logfile .. " 2>&1") ~= 0) then
+      os.remove(passfile)
+
+      local f = io.open(logfile, "r")
+      local log = f:read("*a")
+      f:close()
+      os.remove(logfile)
+
+      return({ error="Failed to generate private key (without password)", output=log })
+    end
+  end
+  os.remove(logfile)
+
+  -- Generate CSR
+  local subj = ""
+  if params["country"] ~= nil then
+    subj = subj .. "/C=" .. params["country"]
+  end
+  if params["state"] ~= nil then
+    subj = subj .. "/ST=" .. params["state"]
+  end
+  if params["localityname"] ~= nil then
+    subj = subj .. "/L=" .. params["localityname"]
+  end
+  if params["orgname"] ~= nil then
+    subj = subj .. "/O=" .. params["orgname"]
+  end
+  if params["orgunitname"] ~= nil then
+    subj = subj .. "/OU=" .. params["orgunitname"]
+  end
+  if params["commonname"] ~= nil then
+    subj = subj .. "/CN=" .. params["commonname"]
+  end
+  if params["email"] ~= nil then
+    subj = subj .. "/emailAddress=" .. params["email"]
+  end
+
+  local logfile = os.tmpname()
+  local passin = "-passin pass:DUMMY"
+  if params["passwd"] ~= nil then
+    passin = "-passin file:" .. passfile
+  end
+
+  if (os.execute(OPENSSL .. " req -new -batch -subj \"" .. subj .. "\" -key " ..
+    destKeyFile .. " " .. passin .. " -out " .. destCsrFile .. " > " .. logfile
+    .. " 2>&1") ~= 0) then
+    os.remove(passfile)
+
+    local f = io.open(logfile, "r")
+    local log = f:read("*a")
+    f:close()
+    os.remove(logfile)
+
+    return({ error="Failed to generate certificate request (with password)", output=log })
+  end
+  os.remove(logfile)
+
+  os.remove(passfile)
+
+  return
+end
+
+function create_temp_opensslcnf(ca_dir)
+  local tempCnf = os.tmpname()
+
+  local f = io.open(tempCnf, "w")
+  f:write("[ ca ]\n")
+  f:write("default_ca=defaultCA\n")
+  f:write("\n")
+  f:write("[ defaultCA ]\n")
+  f:write("dir=" .. ca_dir .. "\n")
+  f:write("\n")
+  f:write("certs=$dir/certs\n")
+  f:write("crl_dir=$dir/crl\n")
+  f:write("database=$dir/index.txt\n")
+  f:write("#unique_subject=no\n")
+  f:write("new_certs_dir=$dir/newcerts\n")
+  f:write("certificate=$dir/cacert.pem\n")
+  f:write("serial=$dir/serial\n")
+  f:write("crlnumber=$dir/crlnumber\n")
+  f:write("crl=$dir/crl.pem\n")
+  f:write("private_key=$dir/private/cakey.pem\n")
+  f:write("default_md=default\n")
+  f:write("policy=policy_anything\n")
+  f:write("default_days=365\n")
+  f:write("\n")
+  f:write("[ v3_ca ]\n")
+  f:write("subjectKeyIdentifier=hash\n")
+  f:write("authorityKeyIdentifier=keyid:always,issuer\n")
+  f:write("basicConstraints = critical,CA:true\n")
+  f:write("\n")
+  f:write("[ client_cert ]\n")
+  f:write("keyUsage = nonRepudiation, digitalSignature, keyEncipherment\n")
+  f:write("extendedKeyUsage = clientAuth\n")
+  f:write("\n")
+  f:write("[ server_cert ]\n")
+  f:write("keyUsage = nonRepudiation, digitalSignature, keyEncipherment\n")
+  f:write("extendedKeyUsage = serverAuth\n")
+  f:write("\n")
+  f:write("[ both_cert ]\n")
+  f:write("keyUsage = nonRepudiation, digitalSignature, keyEncipherment\n")
+  f:write("extendedKeyUsage = clientAuth, serverAuth\n")
+  f:write("\n")
+  f:write("[ policy_anything ]\n")
+  f:write("countryName=optional\n")
+  f:write("stateOrProvinceName=optional\n")
+  f:write("localityName=optional\n")
+  f:write("organizationName=optional\n")
+  f:write("organizationalUnitName=optional\n")
+  f:write("commonName=supplied\n")
+  f:write("emailAddress=optional\n")
+
+  f:close()
+  return tempCnf
+end
+
+function ca_checkname(opts)
+  if (opts["name"] == nil) then
+    return({ error="CA name must be specified." })
+  end
+
+  local ca_name = opts["name"]
+  if (checkIllegalChars(ca_name) ~= nil) then
+    return({ error="CA name contains illegal character." })
+  end
+
+  return({ ok="CA name has no problem." })
+end
+
+function checkdays(opts)
+  if (opts["days"] == nil) then
+    return({ error="CA valid days must be specified." })
+  end
+
+  if (tonumber(opts["days"]) == nil) then
+    return({ error="CA valid days must be integer." })
+  end
+
+  return({ ok="days has no problem." })
+end
+
+function ca_create(opts)
+  local result = ca_checkname(opts)
+  if (result == nil) then
+    return({ error="Unknown error occurred at ca_checkname()." })
+  elseif (result["ok"] == nil) then
+    return(result)
+  end
+
+  local result = checkdays(opts)
+  if (result == nil) then
+    return({ error="Unknown error occurred at checkdays()." })
+  elseif (result["ok"] == nil) then
+    return(result)
+  end
+
+  -- Create CA directory structure
+  local ca_name = opts["name"]
+  os.execute(MKDIR .. " -p " .. ca_rootdir)
+  if (os.execute(MKDIR .. " " .. ca_rootdir .. "/" .. ca_name) ~= 0) then
+    return({ error="Failed to create CA directory." })
+  end
+  if (os.execute(MKDIR .. " " .. ca_rootdir .. "/" .. ca_name .. "/private") ~= 0) then
+    return({ error="Failed to create CA private directory." })
+  end
+  if (os.execute(MKDIR .. " " .. ca_rootdir .. "/" .. ca_name .. "/certs") ~= 0) then
+    return({ error="Failed to create CA certs directory." })
+  end
+  if (os.execute(MKDIR .. " " .. ca_rootdir .. "/" .. ca_name .. "/crl") ~= 0) then
+    return({ error="Failed to create CA CRL directory." })
+  end
+  if (os.execute(MKDIR .. " " .. ca_rootdir .. "/" .. ca_name .. "/newcerts") ~= 0) then
+    return({ error="Failed to create CA newcerts directory." })
+  end
+  if (os.execute(TOUCH .. " " .. ca_rootdir .. "/" .. ca_name .. "/index.txt") ~= 0) then
+    return({ error="Failed to create CA index file." })
+  end
+  if (os.execute("echo 00 > " .. ca_rootdir .. "/" .. ca_name .. "/crlnumber") ~= 0) then
+    return({ error="Failed to create CA CRL number file." })
+  end
+
+  local result = genPkeyAndCsr(opts, ca_rootdir .. "/" .. ca_name .. "/private/cakey.pem",
+    ca_rootdir .. "/" .. ca_name .. "/careq.pem")
+  if (result ~= nil) then
+    ca_delete(opts)
+    return(result)
+  end
+
+  -- create password file
+  local passfile = os.tmpname()
+  if opts["passwd"] ~= nil then
+    local f = io.open(passfile, "w")
+    if (f == nil) then
+      os.remove(passfile)
+      ca_delete(opts)
+      return({ error="Failed to create password file." })
+    end
+
+    f:write(opts["passwd"])
+    f:close()
+  end
+
+  -- Generate certificate
+  local sslCnf = create_temp_opensslcnf(ca_rootdir .. "/" .. ca_name .. "/")
+  local logfile = os.tmpname()
+  local passin = "-passin pass:DUMMY"
+  if opts["passwd"] ~= nil then
+    passin = "-passin file:" .. passfile
+  end
+
+  if (os.execute(OPENSSL .. " ca -config " .. sslCnf .. " -create_serial " ..
+    passin .. " -out " .. ca_rootdir .. "/" .. ca_name ..
+    "/cacert.pem -days " .. tonumber(opts["days"]) .. " -batch -keyfile " ..
+    ca_rootdir .. "/" .. ca_name .. "/private/cakey.pem -selfsign " ..
+    "-extensions v3_ca -in " .. ca_rootdir .. "/" .. ca_name .. "/careq.pem > " .. logfile .. " 2>&1")
+    ~= 0) then
+    os.remove(passfile)
+    os.remove(sslCnf)
+
+    local f = io.open(logfile, "r")
+    local log = f:read("*a")
+    f:close()
+    os.remove(logfile)
+
+    ca_delete(opts)
+
+    return({ error="Failed to generate CA certificate.", output=log })
+  end
+  os.remove(logfile)
+
+  os.remove(passfile)
+  os.remove(sslCnf)
+
+  return({ ok="Successfully created CA." })
+end
+
+function ca_list(opts)
+  f = io.popen(FIND .. " " .. ca_rootdir .. " -type d -maxdepth 1")
+  if (f == nil) then
+    return({ error="unable to list CA." })
+  end
+
+  local e={}
+  for line in f:lines() do
+    f2 = io.open(line .. "/private/cakey.pem")
+    if (f2 ~= nil) then
+      f2:close()
+
+      local r={}
+
+      d = io.popen(BASENAME .. " " .. line)
+      if (d ~= nil) then
+        r.name = tostring(d:read())
+        d:close()
+      end
+
+      d = io.popen("date -d \"`" .. OPENSSL .. " x509 -in " .. line ..
+        "/cacert.pem -noout -startdate | " .. SED .. " s/^.*=//`\"" ..
+        " -D \"%b %d %H:%M:%S %Y\" -u +\"%s\"")
+      if (d ~= nil) then
+        r.created = tonumber(d:read())
+        d:close()
+      end
+
+      d = io.popen("date -d \"`" .. OPENSSL .. " x509 -in " .. line ..
+        "/cacert.pem -noout -enddate | " .. SED .. " s/^.*=//`\"" ..
+        " -D \"%b %d %H:%M:%S %Y\" -u +\"%s\"")
+      if (d ~= nil) then
+        r.expires = tonumber(d:read())
+        d:close()
+      end
+
+      e[ #e + 1 ] = r
+    end
+  end
+  f:close()
+
+  return({ ok="Successfully listed certificate authority", list=e })
+end
+
+function ca_getcert(opts)
+  local result = ca_checkname(opts)
+  if (result == nil) then
+    return({ error="Unknown error occurred at ca_checkname()." })
+  elseif (result["ok"] == nil) then
+    return(result)
+  end
+
+  local ca_name = opts["name"]
+
+  local cacert_pem = ca_rootdir .. "/" .. ca_name .. "/cacert.pem"
+  f = io.popen(BASE64 .. " < " .. cacert_pem)
+  if (f == nil) then
+    return({ error="Failed to find CA [" .. ca_name .. "]" })
+  end
+
+  local certdata = f:read("*a")
+  f:close()
+
+  return({ ok="Successfully attached CA certificate [" .. ca_name .. "]", cert=certdata })
+end
+
+function ca_backup(opts)
+  local result = ca_checkname(opts)
+  if (result == nil) then
+    return({ error="Unknown error occurred at ca_checkname()." })
+  elseif (result["ok"] == nil) then
+    return(result)
+  end
+
+  local ca_name = opts["name"]
+
+  local cacert_pem = ca_rootdir .. "/" .. ca_name .. "/cacert.pem"
+  f = io.open(cacert_pem)
+  if (f == nil) then
+    return({ error="Failed to find CA [" .. ca_name .. "]" })
+  end
+
+  f:close()
+
+  local logfile = os.tmpname()
+  f = io.popen(TAR .. " czC " .. ca_rootdir .. " " .. ca_name .. " 2> " ..
+    logfile .. " | " .. BASE64)
+  if (f == nil) then
+    local f = io.open(logfile, "r")
+    local log = f:read("*a")
+    f:close()
+    os.remove(logfile)
+
+    return({ error="Failed to back up CA [" .. ca_name .. "]", output=log })
+  end
+
+  local backupdata = f:read("*a")
+  f:close()
+
+  if (string.len(backupdata) < 1) then
+    local f = io.open(logfile, "r")
+    local log = f:read("*a")
+    f:close()
+    os.remove(logfile)
+
+    return({ error="Failed to back up CA [" .. ca_name .. "]", output=log })
+  end
+
+  os.remove(logfile)
+
+  return({ ok="Successfully backed up CA [" .. ca_name .. "]", backup=backupdata })
+end
+
+function ca_checkrestore(opts)
+  if (opts == nil) then
+    return({ error="Backup file is not specified." })
+  elseif (opts["backupfile"] == nil) then
+    return({ error="Backup file is not specified." })
+  end
+
+  local backupfile = opts["backupfile"]
+  if (os.execute(TAR .. " tzf " .. backupfile .. " > /dev/null 2>&1")
+    ~= 0) then
+    return({ error="Bad format. Backup must be \"tar.gz\" archive." })
+  end
+
+  if (os.execute(TAR .. " tzf " .. backupfile .. " | " ..
+    "grep ^[A-Za-z0-9_]*/private/cakey.pem$ > /dev/null 2>&1")
+    ~= 0) then
+    return({ error="CA private key was not found." })
+  end
+
+  if (os.execute(TAR .. " tzf " .. backupfile .. " | " ..
+    "grep ^[A-Za-z0-9_]*/cacert.pem$ > /dev/null 2>&1")
+    ~= 0) then
+    return({ error="CA certificate was not found." })
+  end
+
+  if (os.execute(TAR .. " tzf " .. backupfile .. " | " ..
+    "grep ^[A-Za-z0-9_]*/index.txt$ > /dev/null 2>&1")
+    ~= 0) then
+    return({ error="CA index.txt was not found." })
+  end
+
+  return({ ok="Ready to proceed." })
+end
+
+function ca_restore(opts)
+  local result = ca_checkrestore(opts)
+  if (result == nil) then
+    return({ error="Unknown error occurred at ca_checkrestore()." })
+  elseif (result["ok"] == nil) then
+    return(result)
+  end
+
+  local logfile = os.tmpname()
+  os.execute(MKDIR .. " -p " .. ca_rootdir)
+  if (os.execute(TAR .. " xzf " .. opts["backupfile"] .. " -C " .. ca_rootdir ..
+    " > " .. logfile .. " 2>&1") ~= 0) then
+    local f = io.open(logfile, "r")
+    local log = f:read("*a")
+    f:close()
+    os.remove(logfile)
+
+    return({ error="Failed to restore CA.", output=log })
+  end
+  os.remove(logfile)
+
+  return({ ok="Successfully restored CA." })
+end
+
+function ca_delete(opts)
+  local result = ca_checkname(opts)
+  if (result == nil) then
+    return({ error="Unknown error occurred at ca_checkname()." })
+  elseif (result["ok"] == nil) then
+    return(result)
+  end
+
+  local ca_name = opts["name"]
+
+  if (os.execute(RM .. " -fR " .. ca_rootdir .. "/" .. ca_name) ~= 0) then
+    return({ error="Failed to delete CA [" .. ca_name .. "]"})
+  end
+
+  return({ ok="Successfully removed CA [" .. ca_name .. "]" })
+end
+
+function ca_issuecrl(opts)
+  local result = ca_checkname(opts)
+  if (result == nil) then
+    return({ error="Unknown error occurred at ca_checkname()." })
+  elseif (result["ok"] == nil) then
+    return(result)
+  end
+
+  local result = checkdays(opts)
+  if (result == nil) then
+    return({ error="Unknown error occurred at checkdays()." })
+  elseif (result["ok"] == nil) then
+    return(result)
+  end
+
+  -- create password file
+  local passfile = os.tmpname()
+  if opts["passwd"] ~= nil then
+    local f = io.open(passfile, "w")
+    if (f == nil) then
+      os.remove(passfile)
+      return({ error="Failed to create password file." })
+    end
+
+    f:write(opts["passwd"])
+    f:close()
+  end
+
+  local ca_name = opts["name"]
+
+  -- Issue CRL
+  local sslCnf = create_temp_opensslcnf(ca_rootdir .. "/" .. ca_name .. "/")
+
+  local passin = "-passin pass:DUMMY"
+  if opts["passwd"] ~= nil then
+    passin = "-passin file:" .. passfile
+  end
+
+  local logfile = os.tmpname()
+  f = io.popen(OPENSSL .. " ca -config " .. sslCnf .. " " .. passin ..
+    " -gencrl -crldays " .. tonumber(opts["days"]) .. " 2> " .. logfile .. " | " .. BASE64)
+  if (f == nil) then
+    os.remove(passfile)
+    os.remove(sslCnf)
+
+    local f = io.open(logfile, "r")
+    local log = f:read("*a")
+    f:close()
+    os.remove(logfile)
+
+    return({ error="Failed to issue CRL.", output=log })
+  end
+
+  local crldata = f:read("*a")
+  f:close()
+
+  os.remove(passfile)
+  os.remove(sslCnf)
+
+  if (string.len(crldata) < 1) then
+    local f = io.open(logfile, "r")
+    local log = f:read("*a")
+    f:close()
+    os.remove(logfile)
+
+    return({ error="Failed to issue CRL.", output=log })
+  end
+
+  os.remove(logfile)
+
+  return({ ok="Successfully issued CRL.", crl=crldata })
+end
+
+function ca_changepasswd(opts)
+  local result = ca_checkname(opts)
+  if (result == nil) then
+    return({ error="Unknown error occurred at ca_checkname()." })
+  elseif (result["ok"] == nil) then
+    return(result)
+  end
+
+  -- create password file (old)
+  local passfile_old = os.tmpname()
+  if opts["oldpasswd"] ~= nil then
+    local f = io.open(passfile_old, "w")
+    if (f == nil) then
+      os.remove(passfile_old)
+      return({ error="Failed to create password (old) file" })
+    end
+
+    f:write(opts["oldpasswd"])
+    f:close()
+  end
+
+  -- create password file (new)
+  local passfile_new = os.tmpname()
+  if opts["newpasswd"] ~= nil then
+    local f = io.open(passfile_new, "w")
+    if (f == nil) then
+      os.remove(passfile_old)
+      os.remove(passfile_new)
+      return({ error="Failed to create password (new) file" })
+    end
+
+    f:write(opts["newpasswd"])
+    f:close()
+  end
+
+  local ca_name = opts["name"]
+
+  -- Try with RSA first
+  local logfile = os.tmpname()
+
+  local passin = "-passin pass:DUMMY"
+  if opts["oldpasswd"] ~= nil then
+    passin = "-passin file:" .. passfile_old
+  end
+
+  local passout = ""
+  if opts["newpasswd"] ~= nil then
+    passout = "-aes256 -passout file:" .. passfile_new
+  end
+
+  if (os.execute(OPENSSL .. " rsa -in " .. ca_rootdir .. "/" .. ca_name ..
+    "/private/cakey.pem " .. passin .. " -out " .. ca_rootdir .. "/" ..
+    ca_name .. "/private/cakey.pem.new " .. passout .. " > " .. logfile ..
+    " 2>&1") ~= 0) then
+    -- retry with EC
+    if (os.execute(OPENSSL .. " ec -in " .. ca_rootdir .. "/" .. ca_name ..
+      "/private/cakey.pem " .. passin .. " -out " .. ca_rootdir .. "/" ..
+      ca_name .. "/private/cakey.pem.new " .. passout .. " > " .. logfile ..
+      " 2>&1") ~= 0) then
+      os.remove(passfile_old)
+      os.remove(passfile_new)
+
+      local f = io.open(logfile, "r")
+      local log = f:read("*a")
+      f:close()
+      os.remove(logfile)
+
+      return({ error="Failed to change CA password.", output=log })
+    end
+  end
+  os.remove(logfile)
+
+  os.remove(passfile_old)
+  os.remove(passfile_new)
+
+  if (os.execute(MV .. " " .. ca_rootdir .. "/" .. ca_name ..
+    "/private/cakey.pem " .. ca_rootdir .. "/" .. ca_name ..
+    "/private/cakey.pem.old") ~= 0) then
+    return({ error="Failed to move CA private key file (current to old)." })
+  end
+
+  if (os.execute(MV .. " " .. ca_rootdir .. "/" .. ca_name ..
+    "/private/cakey.pem.new " .. ca_rootdir .. "/" .. ca_name ..
+    "/private/cakey.pem") ~= 0) then
+    return({ error="Failed to move CA private key file (new to current)." })
+  end
+
+  if (os.execute(RM .. " " .. ca_rootdir .. "/" .. ca_name ..
+    "/private/cakey.pem.old") ~= 0) then
+    return({ error="Failed to remove old CA private key file." })
+  end
+
+  return({ ok="Successfully changed password of CA [" .. ca_name .. "]" })
+end
+
+function cert_checkcsr(opts)
+  if (opts == nil) then
+    return({ error="CSR file is not specified." })
+  elseif (opts["csrfile"] == nil) then
+    return({ error="CSR file is not specified." })
+  end
+
+  local logfile = os.tmpname()
+
+  local csrfile = opts["csrfile"]
+  if (os.execute(OPENSSL .. " req -in " .. csrfile .. " -noout -verify > " ..
+    logfile .. " 2>&1") ~= 0) then
+    local f = io.open(logfile, "r")
+    local log = f:read("*a")
+    f:close()
+    os.remove(logfile)
+
+    return({ error="Bad CSR file format or not exist.", output=log })
+  end
+
+  d = io.popen(OPENSSL .. " req -in " .. csrfile .. " -noout -subject 2> " ..
+    logfile .. " | " .. SED .. " \"s/^[^=]*=//\"")
+  if (d == nil) then
+    local f = io.open(logfile, "r")
+    local log = f:read("*a")
+    f:close()
+    os.remove(logfile)
+
+    return({ error="CSR file does not have subject.", output=log })
+  end
+  local subjectdata = tostring(d:read())
+  d:close()
+  os.remove(logfile)
+
+  return({ ok="Successfully checked CSR file.", subject=subjectdata })
+end
+
+function cert_issue(opts)
+  local result = ca_checkname(opts)
+  if (result == nil) then
+    return({ error="Unknown error occurred at ca_checkname()." })
+  elseif (result["ok"] == nil) then
+    return(result)
+  end
+
+  local ca_name = opts["name"]
+
+  local result = checkdays(opts)
+  if (result == nil) then
+    return({ error="Unknown error occurred at checkdays()." })
+  elseif (result["ok"] == nil) then
+    return(result)
+  end
+
+  local cert_valid_days = tonumber(opts["days"])
+
+  local result = cert_checkcsr(opts)
+  if (result == nil) then
+    return({ error="Unknown error occurred at cert_checkcsr()." })
+  elseif (result["ok"] == nil) then
+    return(result)
+  end
+
+  local csrfile = opts["csrfile"]
+
+  local certext = nil
+  if (opts ~= nil) then
+    if (opts["clientcert"] ~= nil) then
+      if (tonumber(opts["clientcert"]) > 0) then
+        certext = "client_cert"
+
+        if (opts["servercert"] ~= nil) then
+          if (tonumber(opts["servercert"]) > 0) then
+            certext = "both_cert"
+          end
+        end
+      end
+    end
+
+    if (opts["servercert"] ~= nil) then
+      if (tonumber(opts["servercert"]) > 0) then
+        if (certext == nil) then
+          certext = "server_cert"
+        end
+      end
+    end
+  end
+
+  if certext == nil then
+    return({ error="servercert or clientcert must be enabled." })
+  end
+
+  local csrfile = opts["csrfile"]
+
+  -- create password file
+  local passfile = os.tmpname()
+  if opts["passwd"] ~= nil then
+    local f = io.open(passfile, "w")
+    if (f == nil) then
+      os.remove(passfile)
+      return({ error="Failed to create password file" })
+    end
+
+    f:write(opts["passwd"])
+    f:close()
+  end
+
+  local passin = "-passin pass:DUMMY"
+  if opts["passwd"] ~= nil then
+    passin = "-passin file:" .. passfile
+  end
+
+  -- Issue certificate
+  local tmpcrt = os.tmpname()
+  local logfile = os.tmpname()
+  local sslCnf = create_temp_opensslcnf(ca_rootdir .. "/" .. ca_name .. "/")
+  if (os.execute(OPENSSL .. " ca -config " .. sslCnf .. " " .. passin ..
+    " -policy policy_anything -in " .. csrfile .. " -out " ..
+    tmpcrt .. " -days " .. cert_valid_days .. " -batch -keyfile " ..
+    ca_rootdir .. "/" .. ca_name .. "/private/cakey.pem -extensions " .. certext .. " > " .. logfile .. " 2>&1")
+    ~= 0) then
+    os.remove(tmpcrt)
+    os.remove(passfile)
+    os.remove(sslCnf)
+
+    local f = io.open(logfile, "r")
+    local log = f:read("*a")
+    f:close()
+    os.remove(logfile)
+
+    return({ error="Failed to issue certificate.", output=log })
+  end
+  os.remove(logfile)
+
+  d = io.popen(OPENSSL .. " x509 -in " .. tmpcrt .. " -noout -serial 2> " ..
+    logfile .. " | " .. SED .. " \"s/^[^=]*=//\"")
+  if (d == nil) then
+    os.remove(tmpcrt)
+    os.remove(passfile)
+    os.remove(sslCnf)
+
+    local f = io.open(logfile, "r")
+    local log = f:read("*a")
+    f:close()
+    os.remove(logfile)
+
+    return({ ok="Successfully issued certificate, but unable to parse new certificate.", output=log })
+  end
+  local cert_serial = tostring(d:read())
+  d:close()
+
+  os.remove(logfile)
+
+  os.remove(tmpcrt)
+  os.remove(passfile)
+  os.remove(sslCnf)
+
+  return({ ok="Successfully issued certificate.", serial=cert_serial })
+end
+
+function cert_list(opts)
+  local result = ca_checkname(opts)
+  if (result == nil) then
+    return({ error="Unknown error occurred at ca_checkname()." })
+  elseif (result["ok"] == nil) then
+    return(result)
+  end
+
+  f = io.popen("date -u +\"%s\"")
+  if (f == nil) then
+    return({ error="date command (current datetime) failed." })
+  end
+
+  local currentdate = tostring(f:read())
+  f:close()
+
+  local ca_name = opts["name"]
+  local showvalid = 0
+  if (opts["showvalid"] ~= nil) then
+    showvalid = tonumber(opts["showvalid"])
+  end
+  local showexpired = 0
+  if (opts["showexpired"] ~= nil) then
+    showexpired = tonumber(opts["showexpired"])
+  end
+  local showrevoked = 0
+  if (opts["showrevoked"] ~= nil) then
+    showrevoked = tonumber(opts["showrevoked"])
+  end
+  local showunknown = 0
+  if (opts["showunknown"] ~= nil) then
+    showunknown = tonumber(opts["showunknown"])
+  end
+
+  f = io.open(ca_rootdir .. "/" .. ca_name .. "/cacert.pem")
+  if (f == nil) then
+    return({ error="Failed to find CA " .. ca_name})
+  end
+  f:close()
+
+  local ca_serial
+  f = io.popen(OPENSSL .. " x509 -in " .. ca_rootdir .. "/" .. ca_name ..
+    "/cacert.pem" .. " -noout -serial | " .. SED .. " \"s/^[^=]*=//\"")
+  if (f == nil) then
+    return({ error="Failed to find CA " .. ca_name })
+  end
+
+  ca_serial = tostring(f:read())
+  f:close()
+
+  f = io.popen(CAT .. " " .. ca_rootdir .. "/" .. ca_name .. "/index.txt |" ..
+    " " .. TR .. " '\t' '\n'")
+  if (f == nil) then
+    return({ error="Failed to open index file for CA " .. ca_name })
+  end
+
+  -- first 6 lines should be ignored because it is CA itself
+  for i = 1,6 do
+    f:read()
+  end
+  
+  local e={}
+  local eof = false
+  while (not eof) do
+    local r = {}
+    local statuscode
+
+    statuscode = f:read()
+    f:read() -- expired
+    f:read() -- revoked?
+    r.serial = f:read()
+    f:read() -- ??
+    r.subject = f:read()
+
+    if (statuscode == nil) then
+      eof = true
+    else
+      d = io.popen("date -D \"%b %d %H:%M:%S %Y\" -u +\"%s\" -d \"`" .. OPENSSL ..
+        " x509 -in " .. ca_rootdir .. "/" .. ca_name .. "/newcerts/" .. r.serial ..
+        ".pem -noout -startdate 2> /dev/null | " .. SED .. " s/^.*=//`\" 2> /dev/null")
+      if (d ~= nil) then
+        r.created = d:read()
+        d:close()
+      end
+
+      d = io.popen("date -D \"%b %d %H:%M:%S %Y\" -u +\"%s\" -d \"`" .. OPENSSL ..
+        " x509 -in " .. ca_rootdir .. "/" .. ca_name .. "/newcerts/" .. r.serial ..
+        ".pem -noout -enddate 2> /dev/null | " .. SED .. " s/^.*=//`\" 2> /dev/null")
+      if (d ~= nil) then
+        r.expires = d:read()
+        d:close()
+      end
+
+      r.status = "Valid"
+      if (statuscode == "R") then
+        r.status = "Revoked"
+      elseif ((r.created == nil) or (r.expires == nil)) then
+        r.status = "Unknown";
+      elseif (r.created - currentdate > 0) then
+        r.status = "Expired"
+      elseif (r.expires - currentdate < 0) then
+        r.status = "Expired";
+      end
+
+      if ( ((r.status == "Valid") and (showvalid > 0))
+        or ((r.status == "Revoked") and (showrevoked > 0))
+        or ((r.status == "Expired") and (showexpired > 0))
+        or ((r.status == "Unknown") and (showunknown > 0)) ) then
+        e[ #e + 1 ] = r
+      end
+    end
+  end
+
+  f:close()
+
+  return({ ok="Successfully listed certificates.", list=e })
+end
+
+function cert_get(opts)
+  local result = ca_checkname(opts)
+  if (result == nil) then
+    return({ error="Unknown error occurred at ca_checkname()." })
+  elseif (result["ok"] == nil) then
+    return(result)
+  end
+
+  local ca_name = opts["name"]
+
+  local cert_serial
+  if (opts ~= nil) then
+    if (opts["serial"] ~= nil) then
+      cert_serial = opts["serial"]
+    end
+  end
+  if (cert_serial == nil) then
+    return({ error="Serial number must be specified." })
+  end
+  if (checkIllegalChars(cert_serial) ~= nil) then
+    return({ error="Serial number contains illegal character." })
+  end
+
+  local cert_pem = ca_rootdir .. "/" .. ca_name .. "/newcerts/" .. cert_serial .. ".pem"
+  f = io.open(cert_pem)
+  if (f == nil) then
+    return({ error="Failed to find certificate " .. cert_serial .. " in CA " .. ca_name .. "." })
+  end
+
+  f:close()
+
+  d = io.popen(OPENSSL .. " x509 -in " .. cert_pem .. " -noout -subject | " ..
+    SED .. " \"s/^[^=]*=//\"")
+  if (d == nil) then
+    return({ error="Failed to parse certificate." })
+  end
+  
+  local subject = tostring(d:read())
+  d:close()
+
+  f = io.popen(CAT .. " " .. cert_pem .. " | " .. BASE64)
+  if (f == nil) then
+    return({ error="Failed to open certificate." })
+  end
+
+  local crtdata = f:read("*a")
+  f:close()
+
+  return({ ok="Successfully got certificate.", crt=crtdata })
+end
+
+function cert_revoke(opts)
+  local result = ca_checkname(opts)
+  if (result == nil) then
+    return({ error="Unknown error occurred at ca_checkname()." })
+  elseif (result["ok"] == nil) then
+    return(result)
+  end
+
+  local ca_name = opts["name"]
+
+  local cert_serial
+  if (opts ~= nil) then
+    if (opts["serial"] ~= nil) then
+      cert_serial = opts["serial"]
+    end
+  end
+  if (cert_serial == nil) then
+    return({ error="Serial number must be specified." })
+  end
+  if (checkIllegalChars(cert_serial) ~= nil) then
+    return({ error="Serial number contains illegal character." })
+  end
+
+  local revoke_reason
+  if (opts ~= nil) then
+    if (opts["reason"] ~= nil) then
+      revoke_reason = opts["reason"]
+    end
+  end
+  if (revoke_reason == nil) then
+    return({ error="Revocation reason must be specified." })
+  end
+  if (revocationreasons[revoke_reason] == nil) then
+    return({ error="Bad Revocation reason [" .. revoke_reason .. "]" })
+  end
+
+  local ca_serial
+  f = io.popen(OPENSSL .. " x509 -in " .. ca_rootdir .. "/" .. ca_name ..
+    "/cacert.pem" .. " -noout -serial | " .. SED .. " \"s/^[^=]*=//\"")
+  if (f == nil) then
+    return({ error="Failed to find CA " .. ca_name })
+  end
+
+  ca_serial = tostring(f:read())
+  f:close()
+
+  local cert_pem = ca_rootdir .. "/" .. ca_name .. "/newcerts/" .. cert_serial .. ".pem"
+  f = io.open(cert_pem)
+  if (f == nil) then
+    return({ error="Failed to find certificate " .. cert_serial ..
+      " in CA [" .. ca_name .. "]"})
+  end
+
+  f:close()
+
+  if (ca_serial == cert_serial) then
+    return({ error="Failed to revoke cert of CA [" .. ca_name .. "] itself" })
+  end
+
+  -- create password file
+  local passfile = os.tmpname()
+  if opts["passwd"] ~= nil then
+    local f = io.open(passfile, "w")
+    if (f == nil) then
+      os.remove(passfile)
+      return({ error="Failed to create password file" })
+    end
+
+    f:write(opts["newpasswd"])
+    f:close()
+  end
+
+  local passin = "-passin pass:DUMMY"
+  if opts["passwd"] ~= nil then
+    passin = "-passin file:" .. passfile
+  end
+
+  local logfile = os.tmpname()
+  local sslCnf = create_temp_opensslcnf(ca_rootdir .. "/" .. ca_name .. "/")
+  if (os.execute(OPENSSL .. " ca -config " .. sslCnf .. " " .. passin ..
+    " -revoke " .. ca_rootdir .. "/" .. ca_name .. "/newcerts/" ..
+    cert_serial .. ".pem -crl_reason " .. revoke_reason .. " > " .. logfile .. " 2>&1") ~= 0) then
+    os.remove(passfile)
+    os.remove(sslCnf)
+
+    local f = io.open(logfile, "r")
+    local log = f:read("*a")
+    f:close()
+    os.remove(logfile)
+
+    return({ error="Revocation failed", output=log })
+  end
+  os.remove(passfile)
+  os.remove(sslCnf)
+
+  return({ ok="Successfully revoked certificate.", serial=cert_serial })
+end
+
+function util_create_pkeyandcsr(opts)
+  local tempDir = os.tmpname()
+  os.remove(tempDir)
+  if (os.execute(MKDIR .. " " .. tempDir) ~= 0) then
+    return({ error="Failed to create temporary directory." })
+  end
+
+  local commonname
+  if opts ~= nil then
+    if opts["commonname"] ~= nil then
+      commonname = opts["commonname"]
+    end
+  end
+  if (commonname == nil) then
+    os.remove(tempDir)
+    return({ error="Common name must be specified." })
+  end
+  if (checkIllegalChars(commonname) ~= nil) then
+    os.remove(tempDir)
+    return({ error="Common name contains illegal character." })
+  end
+
+  local result = genPkeyAndCsr(opts, tempDir .. "/" .. commonname .. ".key",
+    tempDir .. "/" .. commonname .. ".csr")
+  if (result ~= nil) then
+    os.remove(tempDir)
+    return(result)
+  end
+
+  f = io.popen(TAR .. " -czC " .. tempDir .. " " .. commonname .. ".key " ..
+    commonname .. ".csr | " .. BASE64)
+  if (f == nil) then
+    os.remove(tempDir .. "/" .. commonname .. ".key")
+    os.remove(tempDir .. "/" .. commonname .. ".csr")
+    os.remove(tempDir)
+
+    return({ error="Failed to run tar." })
+  end
+
+  local arcdata = f:read("*a")
+  f:close()
+
+  os.remove(tempDir .. "/" .. commonname .. ".key")
+  os.remove(tempDir .. "/" .. commonname .. ".csr")
+  os.remove(tempDir)
+
+  return({ ok="Successfully created private key and CSR", arc=arcdata })
+end
+
+function util_listalgorithms(opts)
+  return({ ok="Listed algorithms.", algorithms=algorithms })
+end
+
+function util_listrevocationreasons(opts)
+  return({ ok="Listed revocation reasons.", reasons=revocationreasons })
+end
+
+-- Main function
+if (#arg < 1) or (string.lower(arg[1]) == "help") then
+  print([[
+Usage: simple_ca (command) [options]
+
+[command]
+  ca_list
+    return value
+      { ok:"successful message", list:[{ name: CA_NAME, created: CREATED_DATETIME, expires: EXPIRATION_DATETIME }, ... ] }
+
+  ca_create [--name (NAME)] [--days (DAYS)] {certificate parameters}
+    return value
+      { ok:"successful message" }
+
+  ca_getcert [--name (NAME)]
+    return value
+      { ok:"successful message", cert:(certificate data (base64)) }
+
+  ca_backup [--name (NAME)]
+    return value
+      { ok:"successful message", backup:(back up file .tar.gz (base64))) }
+
+  ca_checkrestore [--backupfile (FILENAME)]
+    return value
+      { ok:"successful message" }
+
+  ca_restore [--backupfile (FILENAME)]
+    return value
+      { ok:"successful message" }
+
+  ca_delete [--name (NAME)]
+    return value
+      { ok:"successful message" }
+
+  ca_issuecrl [--name (NAME)] [--passwd (PASSWORD)] [--days (DAYS)]
+    return value
+      { ok:"successful message", crl:(cerficiate revocation data (base64))) }
+
+  ca_changepasswd [--name (NAME)] [--oldpasswd (PASSWORD)] [--newpasswd (PASSWORD)]
+    return value
+      { ok:"successful message" }
+
+  cert_checkcsr [--csrfile (FILENAME)]
+    return value
+      { ok:"successful message", subject:(subject) }
+
+  cert_issue [--name (NAME (CA))] [--csrfile (FILENAME)] [--days (DAYS)] [--passwd (CA PASSWORD)] [--servercert 0/1] [--clientcert 0/1]
+    return value
+      { ok:"successful message", serial:(serial number) }
+
+  cert_list [--name (NAME (CA))] [--show-valid 0/1] [--showexpired 0/1] [--showrevoked 0/1] [--showunknown 0/1]
+    return value
+      { ok:"successful message", list:[{ serial: SERIAL_NUM, status: V/R, subject: CA_NAME, created: CREATED_DATETIME, expires: EXPIRATION_DATETIME }, ... ] }
+
+  cert_get [--name (NAME (CA))] [--serial (SERIAL)]
+    return value
+      { ok:"successful message", crt:(certificate data (base64)) }
+
+  cert_revoke [--name (NAME (CA))] [--serial (SERIAL)] [--reason (REASON)] [--passwd (CA PASSWORD)]
+    return value
+      { ok: "successful message", serial:(serial number) }
+
+    (REASON):
+      "unspecified", "keyCompromise", "CACompromise", "affiliationChanged"
+      "superseded", "cessationOfOperation", "certificateHold", "removeFromCRL"
+
+  util_create_pkeyandcsr {certificate parameters}
+    return value
+      { ok: "successful message", arc:(created private key / csr .tar.gz (base64)) }
+
+  util_listalgorithms
+    return value
+      { ok: "successful message", algorithms:{ rsa2048:{ order: 0, description: "desc", ...}, ...} }
+
+  util_listrevocationreasons
+    return value
+      { ok: "successful message", reasons: { unspecified:{ order 0, description: "desc", ...}, ...} }
+
+  {certificate parameters}
+    [--algorithm (ALGORITHM/LENGTH)] [--passwd (PASSWORD)]
+    [--country (COUNTRY CODE)] [--state (STATE)] [--localityname (locality name)]
+    [--orgname (ORGANIZATION NAME)] [--orgunitname (ORGANIZATIONAL UNIT NAME)]
+    [--commonname (COMMON NAME)] [--email (EMAIL ADDRESS)]
+]])
+  os.exit(1)
+end
+
+local opts = {}
+for i = 1, #arg / 2 do
+  opts[string.lower(string.sub(arg[i * 2], 3))] = arg[i * 2 + 1]
+end
+
+local comm = string.lower(arg[1])
+local result
+if (comm == "ca_list") then
+  result = ca_list(opts)
+elseif (comm == "ca_create") then
+  result = ca_create(opts)
+elseif (comm == "ca_getcert") then
+  result = ca_getcert(opts)
+elseif (comm == "ca_backup") then
+  result = ca_backup(opts)
+elseif (comm == "ca_checkrestore") then
+  result = ca_checkrestore(opts)
+elseif (comm == "ca_restore") then
+  result = ca_restore(opts)
+elseif (comm == "ca_delete") then
+  result = ca_delete(opts)
+elseif (comm == "ca_issuecrl") then
+  result = ca_issuecrl(opts)
+elseif (comm == "ca_changepasswd") then
+  result = ca_changepasswd(opts)
+elseif (comm == "cert_checkcsr") then
+  result = cert_checkcsr(opts)
+elseif (comm == "cert_issue") then
+  result = cert_issue(opts)
+elseif (comm == "cert_list") then
+  result = cert_list(opts)
+elseif (comm == "cert_get") then
+  result = cert_get(opts)
+elseif (comm == "cert_revoke") then
+  result = cert_revoke(opts)
+elseif (comm == "util_create_pkeyandcsr") then
+  result = util_create_pkeyandcsr(opts)
+elseif (comm == "util_listalgorithms") then
+  result = util_listalgorithms(opts)
+elseif (comm == "util_listrevocationreasons") then
+  result = util_listrevocationreasons(opts)
+else
+  print("{ \"error\": \"Unknown command.\" }")
+  os.exit(1)
+end
+
+if result == nil then
+  print("{ \"error\": \"Unknown error.\" }")
+  os.exit(1)
+elseif result["ok"] ~= nil then
+  print(cjson.encode(result))
+  os.exit(0)
+else
+  print(cjson.encode(result))
+  os.exit(1)
+end

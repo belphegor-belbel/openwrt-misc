@@ -1,0 +1,20 @@
+{
+	"luci-app-simpleca": {
+		"description": "Grant access to LUCI app simpleca",
+		"read": {
+			"file": {
+				"/usr/bin/simpleca": [ "exec" ],
+				"/etc/simple_ca/*": [ "read" ]
+			},
+			"uci": [ "simpleca" ]
+		},
+		"write": {
+			"file": {
+				"/etc/simple_ca/*": [ "write" ],
+				"/tmp/cabackup.tar.gz": [ "write" ],
+				"/tmp/certreq.csr": [ "write" ],
+			},
+			"uci": [ "simpleca" ]
+		}
+	}
+}
