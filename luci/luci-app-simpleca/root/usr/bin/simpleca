@@ -1130,7 +1130,7 @@ function cert_revoke(opts)
       return({ error="Failed to create password file" })
     end
 
-    f:write(opts["newpasswd"])
+    f:write(opts["passwd"])
     f:close()
   end
 
