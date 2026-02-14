@@ -765,6 +765,8 @@ return view.extend({
     },
 
     issueCert: function(ev) {
+      var THIS = this;
+
       // TODO
       var csrTempFileName = '/tmp/certreq.csr';
 
@@ -877,6 +879,8 @@ return view.extend({
                                   a.target = '_blank';
                                   a.download = result.subject + ".crt";
                                   a.click();
+
+                                  THIS.updateCertList();
                                 } else {
                                   // error
                                   alert(result3.error);
