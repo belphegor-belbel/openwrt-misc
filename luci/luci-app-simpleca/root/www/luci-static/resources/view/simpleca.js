@@ -31,6 +31,26 @@ function showBusy(target, busy) {
   }
 }
 
+function hideErrorInModal(messageareas) {
+  if (messageareas != null) {
+    messageareas[0].className = messageareas[0].className.replace(" alert-message error", "");
+    messageareas[0].innerHTML = "";
+  }
+}
+
+function showErrorInModal(messageareas, result) {
+  if (messageareas != null) {
+    messageareas[0].className = " alert-message error";
+    if (result.output != null) {
+      messageareas[0].innerHTML = result.error + "<br/><br/><pre>" + result.output + "</pre>";
+    } else {
+      messageareas[0].innerHTML = result.error;
+    }
+  } else {
+    alert(result.error);
+  }
+}
+
 function createPkeyAndCsrForm(THIS, mode) {
   var title, finishButtonLabel;
 
@@ -159,7 +179,11 @@ function createPkeyAndCsrForm(THIS, mode) {
                 ]),
               ]),
             ]),
+          ]),
 
+          E('div', { name: 'messagearea' }, []),
+
+          E('div', { 'class': 'button-row' }, [
             E('button', {
               'class': 'btn cbi-button-neutral',
               'click': ui.hideModal
@@ -266,6 +290,9 @@ function createPkeyAndCsrForm(THIS, mode) {
                   params.push(email);
                 }
 
+                hideErrorInModal(findParent(ev.target, '.modal').
+                  querySelectorAll('div[name = "messagearea"]'));
+
                 // show busy
                 showBusy(this, true);
 
@@ -289,7 +316,8 @@ function createPkeyAndCsrForm(THIS, mode) {
                       }
                     } else {
                       // error
-                      alert(result.error);
+                      showErrorInModal(findParent(ev.target, '.modal').
+                        querySelectorAll('div[name = "messagearea"]'), result);
                     }
                   }
                 );
@@ -348,7 +376,7 @@ return view.extend({
 
     issueCrlCA: function(name) {
       ui.showModal(_('Issue CRL from CA %s').format(name), [
-        E('div', { 'class': 'button-row' }, [
+        E('div', {}, [
           E('table', { class: 'table' }, [
             E('tr', { class: 'tr cbi-rowstyle-1' }, [
               E('td', { class: 'td' }, [ _('CRL Validity period (days)') ]),
@@ -364,7 +392,11 @@ return view.extend({
               ]),
             ])
           ]),
+        ]),
 
+        E('div', { name: 'messagearea' }, []),
+
+        E('div', { 'class': 'button-row' }, [
           E('button', {
             'class': 'btn cbi-button-neutral',
             'click': ui.hideModal
@@ -390,20 +422,24 @@ return view.extend({
                 params.push('--passwd');
                 params.push(passwd);
               }
+
+              hideErrorInModal(findParent(ev.target, '.modal').
+                querySelectorAll('div[name = "messagearea"]'));
+
               fs.exec(SIMPLECA, params).then (
                 (r) => {
-                  ui.hideModal();
-
                   const result = JSON.parse(r.stdout);
                   if ((r.code == 0) && (result.ok)) {
+                    ui.hideModal();
+
                     var a = document.createElement("a");
                     a.href = "data:application/pkix-crl;base64," + result.crl
                     a.target = '_blank';
                     a.download = name + "-crl-" + getDateTimeString() + ".crl";
                     a.click();
                   } else {
-                    // error
-                    alert(result.error);
+                    showErrorInModal(findParent(ev.target, '.modal').
+                      querySelectorAll('div[name = "messagearea"]'), result);
                   }
                 }
               );
@@ -415,7 +451,7 @@ return view.extend({
 
     changePasswdCA: function(name) {
       ui.showModal(_('Change Password of CA %s').format(name), [
-        E('div', { 'class': 'button-row' }, [
+        E('div', {}, [
           E('table', { class: 'table' }, [
             E('tr', { class: 'tr cbi-rowstyle-1' }, [
               E('td', { class: 'td' }, [ _('Old password') ]),
@@ -438,7 +474,11 @@ return view.extend({
               ]),
             ])
           ]),
+        ]),
 
+        E('div', { name: 'messagearea' }, []),
+
+        E('div', { 'class': 'button-row' }, [
           E('button', {
             'class': 'btn cbi-button-neutral',
             'click': ui.hideModal
@@ -462,9 +502,13 @@ return view.extend({
                 });
 
               if (newpasswd1 !== newpasswd2) {
-                alert('New password does not match!');
+                showErrorInModal(findParent(ev.target, '.modal').
+                  querySelectorAll('div[name = "messagearea"]'), { error: 'New password does not match!' });
                 return;
               }
+
+              hideErrorInModal(findParent(ev.target, '.modal').
+                      querySelectorAll('div[name = "messagearea"]'));
 
               var params = [ 'ca_changepasswd', '--name', name ];
               if (oldpasswd.length > 0) {
@@ -477,14 +521,13 @@ return view.extend({
               }
               fs.exec(SIMPLECA, params).then (
                 (r) => {
-                  ui.hideModal();
-
                   const result = JSON.parse(r.stdout);
                   if ((r.code == 0) && (result.ok)) {
-                    alert('OK');
+                    ui.hideModal();
                   } else {
                     // error
-                    alert(result.error);
+                    showErrorInModal(findParent(ev.target, '.modal').
+                      querySelectorAll('div[name = "messagearea"]'), result);
                   }
                 }
               );
@@ -498,28 +541,36 @@ return view.extend({
       var THIS = this;
 
       ui.showModal(_('Delete CA %s').format(name), [
-        E('div', { 'class': 'button-row' }, [
+        E('div', {}, [
           E('div', { }, [ _('Really delete CA "%s"? This action cannot be undone.').format(name) ]),
+        ]),
 
+        E('div', { name: 'messagearea' }, []),
+
+        E('div', { 'class': 'button-row' }, [
           E('button', {
             'class': 'btn cbi-button-neutral',
             'click': ui.hideModal
           }, _('Cancel')),
 
           E('button', {
-            'class': 'btn cbi-button-positive',
+            'class': 'btn cbi-button-negative',
             'click': function(ev) {
+              hideErrorInModal(findParent(ev.target, '.modal').
+                querySelectorAll('div[name = "messagearea"]'));
+
               var params = [ 'ca_delete', '--name', name ];
               fs.exec(SIMPLECA, params).then(
                 (r) => {
-                  ui.hideModal();
-
                   const result = JSON.parse(r.stdout);
                   if ((r.code == 0) && (result.ok)) {
+                    ui.hideModal();
+
                     THIS.updateCAList();
                   } else {
                     // error
-                    alert(result.error);
+                    showErrorInModal(findParent(ev.target, '.modal').
+                      querySelectorAll('div[name = "messagearea"]'), result);
                   }
                 }
               );
@@ -783,45 +834,49 @@ return view.extend({
               ui.showModal(_('Ready to issue certificate?'), [
                 E('p', _('The uploaded CSR file seems to be valid. Press "Issue" to issue certificate.')),
 
-                E('table', { class: 'table' }, [
-                  E('tr', { class: 'tr cbi-rowstyle-1' }, [
-                    E('td', { class: 'td' }, [ _('Certificate authority') ]),
-                    E('td', { class: 'td' }, [ CAname ]),
-                  ]),
-
-                  E('tr', { class: 'tr cbi-rowstyle-1' }, [
-                    E('td', { class: 'td' }, [ _('Subject') ]),
-                    E('td', { class: 'td' }, [ result.subject ]),
-                  ]),
-
-                  E('tr', { class: 'tr cbi-rowstyle-2' }, [
-                    E('td', { class: 'td' }, [ _('CA password') ]),
-                    E('td', { class: 'td' }, [
-                      E('input', { name: 'passwd', type: 'password' }),
+                E('div', {}, [
+                  E('table', { class: 'table' }, [
+                    E('tr', { class: 'tr cbi-rowstyle-1' }, [
+                      E('td', { class: 'td' }, [ _('Certificate authority') ]),
+                      E('td', { class: 'td' }, [ CAname ]),
                     ]),
-                  ]),
 
-                  E('tr', { class: 'tr cbi-rowstyle-1' }, [
-                    E('td', { class: 'td' }, [ _('Validity period (days)') ]),
-                    E('td', { class: 'td' }, [
-                      E('input', { name: 'days', type: 'number', value: '365', min: '0' }),
+                    E('tr', { class: 'tr cbi-rowstyle-1' }, [
+                      E('td', { class: 'td' }, [ _('Subject') ]),
+                      E('td', { class: 'td' }, [ result.subject ]),
                     ]),
-                  ]),
 
-                  E('tr', { class: 'tr cbi-rowstyle-1' }, [
-                    E('td', { class: 'td' }, [ _('Usage') ]),
-                    E('td', { class: 'td' }, [
-                      E('input', { name: 'clientcert', type: 'checkbox', value: '1' }),
-                      E('label', {}, [ _('Client certificate') ]),
-                      E('label', {}, [ ' ' ]),
-
-                      E('input', { name: 'servercert', type: 'checkbox', value: '1' }),
-                      E('label', {}, [ _('Server certificate:') ]),
+                    E('tr', { class: 'tr cbi-rowstyle-2' }, [
+                      E('td', { class: 'td' }, [ _('CA password') ]),
+                      E('td', { class: 'td' }, [
+                        E('input', { name: 'passwd', type: 'password' }),
+                      ]),
                     ]),
-                  ])
-                ]),
 
-                E('div', { 'class': 'right' }, [
+                    E('tr', { class: 'tr cbi-rowstyle-1' }, [
+                      E('td', { class: 'td' }, [ _('Validity period (days)') ]),
+                      E('td', { class: 'td' }, [
+                        E('input', { name: 'days', type: 'number', value: '365', min: '0' }),
+                      ]),
+                    ]),
+
+                    E('tr', { class: 'tr cbi-rowstyle-1' }, [
+                      E('td', { class: 'td' }, [ _('Usage') ]),
+                      E('td', { class: 'td' }, [
+                        E('input', { name: 'clientcert', type: 'checkbox', value: '1' }),
+                        E('label', {}, [ _('Client certificate') ]),
+                        E('label', {}, [ ' ' ]),
+
+                        E('input', { name: 'servercert', type: 'checkbox', value: '1' }),
+                        E('label', {}, [ _('Server certificate:') ]),
+                      ]),
+                    ])
+                  ]),
+                 ]),
+
+                E('div', { name: 'messagearea' }, []),
+
+                E('div', { 'class': 'button-row' }, [
                   E('button', {
                     'class': 'btn',
                     'click': ui.createHandlerFn(this, function(ev) {
@@ -851,6 +906,9 @@ return view.extend({
                             }
                           }
                         });
+
+                      hideErrorInModal(findParent(ev.target, '.modal').
+                        querySelectorAll('div[name = "messagearea"]'));
 
                       var params = [ 'cert_issue', '--name', CAname, '--days', days, '--csrfile', csrTempFileName ];
                       if (passwd.length > 0) {
@@ -883,7 +941,8 @@ return view.extend({
                                   THIS.updateCertList();
                                 } else {
                                   // error
-                                  alert(result3.error);
+                                  showErrorInModal(findParent(ev.target, '.modal').
+                                    querySelectorAll('div[name = "messagearea"]'), result3);
                                 }
                               }
                             );
@@ -891,7 +950,8 @@ return view.extend({
                             fs.remove(csrTempFileName).finally(ui.hideModal);
                           } else {
                             // error
-                            alert(result2.error);
+                            showErrorInModal(findParent(ev.target, '.modal').
+                              querySelectorAll('div[name = "messagearea"]'), result2);
                           }
                         }
                       );
@@ -928,7 +988,7 @@ return view.extend({
             }
 
             ui.showModal(_('Revoke certificate'), [
-              E('div', { 'class': 'button-row' }, [
+              E('div', {}, [
                 E('table', { class: 'table' }, [
                   E('tr', { class: 'tr cbi-rowstyle-1' }, [
                     E('td', { class: 'td' }, [ _('Certificate authority') ]),
@@ -959,7 +1019,11 @@ return view.extend({
                     ]),
                   ]),
                 ]),
+              ]),
 
+              E('div', { name: 'messagearea' }, []),
+
+              E('div', { 'class': 'button-row' }, [
                 E('button', {
                   'class': 'btn cbi-button-neutral',
                   'click': ui.hideModal
@@ -986,6 +1050,9 @@ return view.extend({
                         }
                       });
 
+                    hideErrorInModal(findParent(ev.target, '.modal').
+                      querySelectorAll('div[name = "messagearea"]'));
+
                     var params = [ 'cert_revoke', '--name', CAname, '--serial', serial ];
                     if (passwd.length > 0) {
                       params.push('--passwd');
@@ -997,15 +1064,14 @@ return view.extend({
                     }
                     fs.exec(SIMPLECA, params).then (
                       (r) => {
-                        ui.hideModal();
-
                         const result = JSON.parse(r.stdout);
                         if ((r.code == 0) && (result.ok)) {
-                          alert('OK');
+                          ui.hideModal();
                           THIS.updateCertList();
                         } else {
                           // error
-                          alert(result.error);
+                          showErrorInModal(findParent(ev.target, '.modal').
+                            querySelectorAll('div[name = "messagearea"]'), result);
                         }
                       }
                     );
