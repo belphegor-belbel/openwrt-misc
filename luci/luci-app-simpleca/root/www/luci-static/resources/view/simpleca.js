@@ -330,6 +330,17 @@ function createPkeyAndCsrForm(THIS, mode) {
   });
 }
 
+var filterTimeout = null;
+
+function refreshCertsDelay(ev) {
+  if (filterTimeout != null)
+    window.clearTimeout(filterTimeout);
+
+  filterTimeout = window.setTimeout(function() {
+    document.getElementById("refresh_certificatelist").click();
+  }, 250);
+}
+
 return view.extend({
     load: function() {
         return Promise.all([
@@ -751,6 +762,7 @@ return view.extend({
       var checkboxExpired= document.getElementById('checkbox_certlist_expired').checked;
       var checkboxRevoked = document.getElementById('checkbox_certlist_revoked').checked;
       var checkboxUnknown = document.getElementById('checkbox_certlist_unknown').checked;
+      var textboxFilter = document.getElementById('textbox_certlist_filter').value;
 
       var params = [];
       if (checkboxValid) {
@@ -768,6 +780,10 @@ return view.extend({
       if (checkboxUnknown) {
         params.push("--showunknown");
         params.push("1");
+      }
+      if (textboxFilter.length > 0) {
+        params.push("--setfilter");
+        params.push(textboxFilter);
       }
 
       showBusy(tableCertificates, true);
@@ -1134,6 +1150,7 @@ return view.extend({
             E('div', { class: 'button-row', align: 'right' }, [
               E('button', {
                 class: 'btn cbi-button-positive',
+                id: 'refresh_certificatelist',
                 'click': ui.createHandlerFn(this, "refreshCerts")
               }, _('Refresh certiticates list')),
               E('button', {
@@ -1142,6 +1159,7 @@ return view.extend({
               }, _('Issue certificate from CSR file...')),
             ]),
             E('div', { class: 'button-row', align: 'center' }, [
+              E('label', {}, [ _('Filters: ') ]),
               E('input', {
                 id: 'checkbox_certlist_valid',
                 type: 'checkbox',
@@ -1174,6 +1192,12 @@ return view.extend({
                 'click': ui.createHandlerFn(this, "refreshCerts")
               }),
               E('label', {}, [ _("Unknown") ]),
+              E('label', {}, [ ' ' ]),
+              E('input', {
+                id: 'textbox_certlist_filter',
+                type: 'input',
+                'input': refreshCertsDelay,
+              }),
             ]),
             E('table', { class: 'table', id: 'table_certificates' }, [
               E('tr', { class: 'tr table-titles' }, [

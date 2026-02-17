@@ -926,6 +926,10 @@ function cert_list(opts)
   if (opts["showunknown"] ~= nil) then
     showunknown = tonumber(opts["showunknown"])
   end
+  local setfilter = ""
+  if (opts["setfilter"] ~= nil) then
+    setfilter = tostring(opts["setfilter"])
+  end
 
   f = io.open(ca_rootdir .. "/" .. ca_name .. "/cacert.pem")
   if (f == nil) then
@@ -1000,7 +1004,9 @@ function cert_list(opts)
       if ( ((r.status == "Valid") and (showvalid > 0))
         or ((r.status == "Revoked") and (showrevoked > 0))
         or ((r.status == "Expired") and (showexpired > 0))
-        or ((r.status == "Unknown") and (showunknown > 0)) ) then
+        or ((r.status == "Unknown") and (showunknown > 0)) )
+        and ((string.find(r.subject, setfilter) ~= nil)
+          or (string.find(r.serial, setfilter) ~= nil)) then
         e[ #e + 1 ] = r
       end
     end
@@ -1267,7 +1273,7 @@ Usage: simple_ca (command) [options]
     return value
       { ok:"successful message", serial:(serial number) }
 
-  cert_list [--name (NAME (CA))] [--show-valid 0/1] [--showexpired 0/1] [--showrevoked 0/1] [--showunknown 0/1]
+  cert_list [--name (NAME (CA))] [--show-valid 0/1] [--showexpired 0/1] [--showrevoked 0/1] [--showunknown 0/1] [--setfilter (search text]
     return value
       { ok:"successful message", list:[{ serial: SERIAL_NUM, status: V/R, subject: CA_NAME, created: CREATED_DATETIME, expires: EXPIRATION_DATETIME }, ... ] }
 
