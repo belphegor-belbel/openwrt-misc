@@ -5,7 +5,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-simpleca
-PKG_VERSION:=0.94
+PKG_VERSION:=0.95
 PKG_RELEASE:=0
 PKG_MAINTAINER:=Yasuhiko Kamata <belphegor@belbel.or.jp>
 PKG_LICENSE:=GPL-2.0
@@ -30,6 +30,7 @@ endef
 define Package/luci-app-simpleca/install
 	$(INSTALL_DIR) $(1)/www/luci-static/ $(1)/etc/config
 	$(CP) ./root/* $(1)/
+	chmod 0755 ./root/usr/bin/*
 endef
 
 $(eval $(call BuildPackage,luci-app-simpleca))
