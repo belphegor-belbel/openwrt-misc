@@ -1,0 +1,11 @@
+{
+	"luci-app-openvpn_stat": {
+		"description": "Grant access to LUCI app openvpn_stat",
+		"read": {
+			"file": {
+				"/var/run/openvpn.*.status": [ "read" ]
+			},
+			"uci": [ "simpleca" ]
+		},
+	}
+}

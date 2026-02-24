@@ -1,0 +1,13 @@
+{
+	"admin/status/openvpn_stat": {
+		"title": "OpenVPN connection status",
+		"action": {
+			"type": "view",
+			"path": "openvpn_stat"
+		},
+		"depends": {
+			"acl": [ "luci-app-openvpn_stat" ]
+		}
+	}
+}
+
