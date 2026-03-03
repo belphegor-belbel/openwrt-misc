@@ -46,10 +46,18 @@ case $1 in
       required="$required _codec_is_not_selected"
     fi
 
+    if [ "`which opkg`" ]; then
+      packagemanager="opkg list-installed"
+    elif [ "`which apk`" ]; then
+      packagemanager="apk info"
+    else
+      packagemanager="ERROR"
+    fi
+
     missing=0;
     for r in $required; do
       installed=0;
-      for i in `opkg list-installed`; do
+      for i in `$packagemanager`; do
         if [ "$r" == "$i" ]; then
           installed=1;
           break;
